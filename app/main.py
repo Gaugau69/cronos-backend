@@ -61,7 +61,14 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/", include_in_schema=False)
-async def serve_onboarding():
+async def serve_landing():
+    """Page de présentation AION."""
+    return FileResponse(STATIC_DIR / "landing.html")
+
+
+@app.get("/connect", include_in_schema=False)
+async def serve_connect():
+    """Formulaire de connexion Garmin."""
     return FileResponse(STATIC_DIR / "index.html")
 
 

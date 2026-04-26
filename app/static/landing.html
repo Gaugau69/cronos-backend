@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AION — Jumeau numérique de l'athlète</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080810;
+      --surface:  #0f0f1a;
+      --border:   #1a1a2e;
+      --accent:   #6ee7b7;
+      --accent2:  #38bdf8;
+      --red:      #f87171;
+      --text:     #e2e8f0;
+      --muted:    #4a5568;
+      --muted2:   #718096;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* ── NOISE OVERLAY ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 100; opacity: 0.4;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 50;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 48px;
+      background: linear-gradient(to bottom, rgba(8,8,16,0.95), transparent);
+      backdrop-filter: blur(12px);
+    }
+
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none;
+    }
+    .nav-logo-icon {
+      width: 30px; height: 30px;
+      border: 1.5px solid var(--accent);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nav-logo-icon::before {
+      content: '';
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+    .nav-logo-text {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      letter-spacing: 0.15em;
+      color: var(--text);
+    }
+
+    .nav-links {
+      display: flex; align-items: center; gap: 32px;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: 12px;
+      font-family: 'DM Mono', monospace;
+      font-weight: 400;
+      color: var(--muted2);
+      text-decoration: none;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--accent); }
+
+    .nav-cta {
+      background: var(--accent);
+      color: #080810;
+      padding: 9px 20px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      font-family: 'DM Mono', monospace;
+      text-decoration: none;
+      letter-spacing: 0.05em;
+      transition: opacity 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.85; }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 100vh;
+      display: flex; align-items: center;
+      padding: 120px 48px 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 60px 60px;
+      opacity: 0.3;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 20%, transparent 100%);
+    }
+
+    .hero-glow {
+      position: absolute;
+      width: 700px; height: 700px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(110,231,183,0.08) 0%, transparent 65%);
+      top: -100px; right: -200px;
+      pointer-events: none;
+    }
+    .hero-glow-2 {
+      position: absolute;
+      width: 400px; height: 400px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 65%);
+      bottom: 0; left: -100px;
+      pointer-events: none;
+    }
+
+    .hero-content {
+      position: relative; z-index: 1;
+      max-width: 780px;
+    }
+
+    .hero-tag {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(110,231,183,0.08);
+      border: 1px solid rgba(110,231,183,0.2);
+      padding: 6px 14px;
+      border-radius: 100px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      margin-bottom: 32px;
+      animation: fadeUp 0.6s ease both;
+    }
+    .hero-tag::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    .hero-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(64px, 9vw, 120px);
+      line-height: 0.92;
+      letter-spacing: 0.02em;
+      margin-bottom: 28px;
+      animation: fadeUp 0.6s 0.1s ease both;
+    }
+    .hero-title .accent { color: var(--accent); }
+    .hero-title .stroke {
+      -webkit-text-stroke: 1px rgba(110,231,183,0.4);
+      color: transparent;
+    }
+
+    .hero-sub {
+      font-size: 17px;
+      color: var(--muted2);
+      line-height: 1.7;
+      max-width: 520px;
+      margin-bottom: 48px;
+      font-weight: 400;
+      animation: fadeUp 0.6s 0.2s ease both;
+    }
+
+    .hero-actions {
+      display: flex; align-items: center; gap: 16px;
+      animation: fadeUp 0.6s 0.3s ease both;
+    }
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--accent);
+      color: #080810;
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: 'Syne', sans-serif;
+      text-decoration: none;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-2px); }
+
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 8px;
+      color: var(--muted2);
+      padding: 14px 28px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 14px;
+      font-weight: 500;
+      font-family: 'Syne', sans-serif;
+      text-decoration: none;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-secondary:hover { color: var(--text); border-color: var(--muted); }
+
+    .hero-stats {
+      position: absolute; right: 48px; top: 50%;
+      transform: translateY(-50%);
+      display: flex; flex-direction: column; gap: 24px;
+      animation: fadeUp 0.6s 0.4s ease both;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      text-align: right;
+      min-width: 160px;
+    }
+    .stat-value {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 42px;
+      color: var(--accent);
+      line-height: 1;
+      letter-spacing: 0.05em;
+    }
+    .stat-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--muted2);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── SECTION ── */
+    section {
+      padding: 100px 48px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .section-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(36px, 5vw, 60px);
+      line-height: 1;
+      letter-spacing: 0.03em;
+      margin-bottom: 16px;
+    }
+
+    .section-sub {
+      font-size: 15px;
+      color: var(--muted2);
+      line-height: 1.7;
+      max-width: 500px;
+      margin-bottom: 60px;
+    }
+
+    /* ── COMMENT CA MARCHE ── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .step {
+      background: var(--surface);
+      padding: 40px 36px;
+      position: relative;
+      transition: background 0.2s;
+    }
+    .step:hover { background: #13132a; }
+
+    .step-number {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 80px;
+      color: var(--border);
+      line-height: 1;
+      margin-bottom: 20px;
+      transition: color 0.2s;
+    }
+    .step:hover .step-number { color: rgba(110,231,183,0.15); }
+
+    .step-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+
+    .step-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .step-desc {
+      font-size: 14px;
+      color: var(--muted2);
+      line-height: 1.6;
+      font-family: 'DM Mono', monospace;
+      font-weight: 300;
+    }
+
+    /* ── FEATURES ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .feature-card:hover {
+      border-color: rgba(110,231,183,0.3);
+      transform: translateY(-3px);
+    }
+    .feature-card.wide { grid-column: span 2; }
+
+    .feature-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      background: rgba(110,231,183,0.08);
+      border: 1px solid rgba(110,231,183,0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      margin-bottom: 20px;
+    }
+
+    .feature-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .feature-desc {
+      font-size: 13px;
+      color: var(--muted2);
+      line-height: 1.6;
+      font-family: 'DM Mono', monospace;
+      font-weight: 300;
+    }
+
+    /* ── PRIVACY ── */
+    .privacy-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 60px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+    }
+
+    .privacy-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 48px;
+      line-height: 1;
+      letter-spacing: 0.03em;
+      margin-bottom: 20px;
+    }
+
+    .privacy-desc {
+      font-size: 14px;
+      color: var(--muted2);
+      line-height: 1.7;
+      font-family: 'DM Mono', monospace;
+      font-weight: 300;
+      margin-bottom: 32px;
+    }
+
+    .privacy-points {
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .privacy-point {
+      display: flex; align-items: flex-start; gap: 12px;
+      font-size: 13px;
+      font-family: 'DM Mono', monospace;
+      color: var(--muted2);
+      line-height: 1.5;
+    }
+
+    .privacy-point::before {
+      content: '→';
+      color: var(--accent);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .privacy-visual {
+      display: flex; flex-direction: column; gap: 12px;
+    }
+
+    .privacy-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+    }
+
+    .privacy-item-label { color: var(--muted2); }
+    .privacy-item-status {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--accent);
+      font-size: 11px;
+    }
+    .privacy-item-status.red { color: var(--red); }
+    .privacy-item-status::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ── CTA ── */
+    .cta-section {
+      text-align: center;
+      padding: 80px 48px 120px;
+      position: relative;
+    }
+
+    .cta-glow {
+      position: absolute;
+      width: 600px; height: 300px;
+      background: radial-gradient(ellipse, rgba(110,231,183,0.07) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    .cta-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(48px, 7vw, 90px);
+      line-height: 1;
+      letter-spacing: 0.03em;
+      margin-bottom: 20px;
+      position: relative;
+    }
+
+    .cta-sub {
+      font-size: 15px;
+      color: var(--muted2);
+      line-height: 1.7;
+      max-width: 420px;
+      margin: 0 auto 40px;
+      font-family: 'DM Mono', monospace;
+      font-weight: 300;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-logo {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 18px;
+      letter-spacing: 0.15em;
+      color: var(--muted);
+    }
+
+    .footer-text {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* ── DIVIDER ── */
+    .divider {
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+      margin: 0 auto;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      nav { padding: 16px 24px; }
+      .nav-links { display: none; }
+      .hero { padding: 100px 24px 60px; }
+      .hero-stats { display: none; }
+      section { padding: 60px 24px; }
+      .steps { grid-template-columns: 1fr; }
+      .features-grid { grid-template-columns: 1fr; }
+      .feature-card.wide { grid-column: span 1; }
+      .privacy-section { grid-template-columns: 1fr; padding: 40px 24px; }
+      .cta-section { padding: 60px 24px 80px; }
+      footer { flex-direction: column; gap: 12px; text-align: center; padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <a href="/" class="nav-logo">
+      <div class="nav-logo-icon"></div>
+      <span class="nav-logo-text">AION</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#comment">Comment ça marche</a></li>
+      <li><a href="#fonctionnalites">Fonctionnalités</a></li>
+      <li><a href="#confidentialite">Confidentialité</a></li>
+    </ul>
+    <a href="/connect" class="nav-cta">Connecter mon Garmin</a>
+  </nav>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-grid"></div>
+    <div class="hero-glow"></div>
+    <div class="hero-glow-2"></div>
+
+    <div class="hero-content">
+      <div class="hero-tag">Recherche CentraleSupélec</div>
+      <h1 class="hero-title">
+        TON <span class="accent">JUMEAU</span><br>
+        <span class="stroke">NUMÉRIQUE</span><br>
+        ATHLÈTE
+      </h1>
+      <p class="hero-sub">
+        AION apprend ta physiologie pour prédire ta récupération, anticiper la fatigue et optimiser chaque séance d'entraînement.
+      </p>
+      <div class="hero-actions">
+        <a href="/connect" class="btn-primary">
+          Connecter mon Garmin →
+        </a>
+        <a href="#comment" class="btn-secondary">
+          En savoir plus
+        </a>
+      </div>
+    </div>
+
+    <div class="hero-stats">
+      <div class="stat-card">
+        <div class="stat-value">14J</div>
+        <div class="stat-label">Fenêtre d'analyse</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">12</div>
+        <div class="stat-label">Métriques / jour</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">τ+1</div>
+        <div class="stat-label">Prédiction J+1</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- COMMENT CA MARCHE -->
+  <section id="comment">
+    <div class="section-tag">// processus</div>
+    <h2 class="section-title">Comment ça marche</h2>
+    <p class="section-sub">Trois étapes simples pour que AION apprenne à te connaître.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-number">01</div>
+        <div class="step-icon">⌚</div>
+        <div class="step-title">Tu connectes ton Garmin</div>
+        <div class="step-desc">En 2 minutes, tu autorises AION à accéder à ton historique. Ton mot de passe n'est jamais stocké — un token sécurisé prend le relais.</div>
+      </div>
+      <div class="step">
+        <div class="step-number">02</div>
+        <div class="step-icon">🧠</div>
+        <div class="step-title">Le modèle apprend</div>
+        <div class="step-desc">AION analyse tes patterns de sommeil, HRV, charge d'entraînement et récupération sur plusieurs mois pour construire ton jumeau numérique.</div>
+      </div>
+      <div class="step">
+        <div class="step-number">03</div>
+        <div class="step-icon">📈</div>
+        <div class="step-title">Tu reçois des prédictions</div>
+        <div class="step-desc">Le modèle prédit ton état de récupération J+1 et identifie les signaux de surmenage avant qu'ils impactent tes performances.</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- FONCTIONNALITES -->
+  <section id="fonctionnalites">
+    <div class="section-tag">// fonctionnalités</div>
+    <h2 class="section-title">Ce qu'AION analyse</h2>
+    <p class="section-sub">12 métriques physiologiques par jour, encodées dans une architecture JEPA.</p>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">💓</div>
+        <div class="feature-title">HRV & Fréquence cardiaque</div>
+        <div class="feature-desc">Variabilité cardiaque nocturne (RMSSD), FC au repos, FC moyenne et dérive cardiaque intra-séance pour mesurer le stress physiologique réel.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🌙</div>
+        <div class="feature-title">Qualité du sommeil</div>
+        <div class="feature-desc">Durée totale, phases REM/profond/léger, score de sommeil et fréquence respiratoire — les signaux de récupération nocturne les plus prédictifs.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🏃</div>
+        <div class="feature-title">Charge d'entraînement</div>
+        <div class="feature-desc">Allure, économie de course (ratio allure/FC), durée, dénivelé et effet d'entraînement pour quantifier le stress mécanique et métabolique.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔋</div>
+        <div class="feature-title">Récupération & Stress</div>
+        <div class="feature-desc">Body Battery, niveau de stress quotidien, répartition repos/effort pour évaluer la balance charge-récupération sur 14 jours glissants.</div>
+      </div>
+      <div class="feature-card wide">
+        <div class="feature-icon">🤖</div>
+        <div class="feature-title">Architecture JEPA — Joint-Embedding Predictive Architecture</div>
+        <div class="feature-desc">AION n'apprend pas à copier le futur pixel par pixel. Il apprend une dynamique en représentation latente : "si tu fais cette séance dans ce contexte, ton état physiologique futur se projette ici." Un Transformer 1D encode ton historique de 14 jours, un MLP prédit l'état futur dans l'espace latent.</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- CONFIDENTIALITE -->
+  <section id="confidentialite" style="padding-bottom: 0;">
+    <div class="section-tag">// sécurité</div>
+    <h2 class="section-title">Tes données t'appartiennent</h2>
+  </section>
+
+  <section style="padding-top: 24px;">
+    <div class="privacy-section">
+      <div>
+        <h3 class="privacy-title">Zéro compromis sur la confidentialité</h3>
+        <p class="privacy-desc">
+          Tes données physiologiques sont parmi les plus sensibles qui existent. On les traite avec le même soin qu'un dossier médical.
+        </p>
+        <div class="privacy-points">
+          <div class="privacy-point">Ton mot de passe Garmin est utilisé une seule fois pour générer un token sécurisé. Il n'est jamais stocké nulle part.</div>
+          <div class="privacy-point">Tes données sont stockées dans une base chiffrée (Supabase) et ne sont jamais vendues ni partagées avec des tiers.</div>
+          <div class="privacy-point">Le projet est académique — aucun usage commercial de tes données sans ton consentement explicite.</div>
+          <div class="privacy-point">Tu peux demander la suppression complète de ton compte et de toutes tes données à tout moment.</div>
+        </div>
+      </div>
+      <div class="privacy-visual">
+        <div class="privacy-item">
+          <span class="privacy-item-label">Mot de passe stocké</span>
+          <span class="privacy-item-status red">Jamais</span>
+        </div>
+        <div class="privacy-item">
+          <span class="privacy-item-label">Token OAuth</span>
+          <span class="privacy-item-status">Chiffré en DB</span>
+        </div>
+        <div class="privacy-item">
+          <span class="privacy-item-label">Vente de données</span>
+          <span class="privacy-item-status red">Jamais</span>
+        </div>
+        <div class="privacy-item">
+          <span class="privacy-item-label">Accès tiers</span>
+          <span class="privacy-item-status red">Aucun</span>
+        </div>
+        <div class="privacy-item">
+          <span class="privacy-item-label">Suppression compte</span>
+          <span class="privacy-item-status">Sur demande</span>
+        </div>
+        <div class="privacy-item">
+          <span class="privacy-item-label">Projet</span>
+          <span class="privacy-item-status">Recherche académique</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- CTA -->
+  <div class="cta-section">
+    <div class="cta-glow"></div>
+    <h2 class="cta-title">PRÊT À<br><span style="color: var(--accent);">PARTICIPER ?</span></h2>
+    <p class="cta-sub">Connecte ton Garmin en 2 minutes et contribue à la recherche sur la performance athlétique.</p>
+    <a href="/connect" class="btn-primary" style="font-size: 16px; padding: 16px 36px;">
+      Connecter mon Garmin →
+    </a>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-logo">AION</div>
+    <div class="footer-text">Projet de recherche — CentraleSupélec</div>
+    <div class="footer-text">© 2025 PeakFlow Technologies</div>
+  </footer>
+
+</body>
+</html>
