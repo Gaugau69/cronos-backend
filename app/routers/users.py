@@ -2,8 +2,12 @@
 app/routers/users.py — Endpoints de gestion des utilisateurs.
 """
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import User, get_db
@@ -11,6 +15,13 @@ from app.schemas import UserCreate, UserOut
 from app.services.garmin_auth import login_and_save_token
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+class UserTokenRegister(BaseModel):
+    """Enregistrement via token pré-généré (depuis l'app desktop)."""
+    name: str
+    email: EmailStr
+    token_json: str
 
 
 def _to_out(u: User) -> UserOut:
@@ -31,6 +42,33 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
     ok = await login_and_save_token(db, payload.name, payload.email, payload.password)
     if not ok:
         raise HTTPException(401, "Authentification Garmin échouée. Vérifier email/mot de passe.")
+
+    user = (await db.execute(select(User).where(User.name == payload.name))).scalar_one()
+    return _to_out(user)
+
+
+@router.post("/register-token", response_model=UserOut, status_code=201)
+async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Depends(get_db)):
+    """
+    Enregistre un user avec un token Garmin pré-généré depuis l'app desktop.
+    Le login Garmin a été fait côté client — on stocke juste le token.
+    """
+    # Valide que le token_json est bien du JSON
+    try:
+        json.loads(payload.token_json)
+    except Exception:
+        raise HTTPException(400, "token_json invalide.")
+
+    stmt = (
+        pg_insert(User)
+        .values(name=payload.name, email=payload.email, token_json=payload.token_json)
+        .on_conflict_do_update(
+            index_elements=["name"],
+            set_={"email": payload.email, "token_json": payload.token_json},
+        )
+    )
+    await db.execute(stmt)
+    await db.commit()
 
     user = (await db.execute(select(User).where(User.name == payload.name))).scalar_one()
     return _to_out(user)
