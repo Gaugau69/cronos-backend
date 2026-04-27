@@ -127,8 +127,6 @@ class AionApp(tk.Tk):
             highlightcolor="#6ee7b7",
             show=show or ""
         )
-        e.configure(height=1)
-
         # Placeholder
         if not show:
             e.insert(0, placeholder)
