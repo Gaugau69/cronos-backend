@@ -4477,21 +4477,9 @@
    'C:\\Users\\Gauthier '
    'Argentiéri\\AppData\\Local\\Programs\\Python\\Python310\\lib\\tkinter\\__init__.py',
    'PYMODULE'),
-  ('tkinter.commondialog',
-   'C:\\Users\\Gauthier '
-   'Argentiéri\\AppData\\Local\\Programs\\Python\\Python310\\lib\\tkinter\\commondialog.py',
-   'PYMODULE'),
   ('tkinter.constants',
    'C:\\Users\\Gauthier '
    'Argentiéri\\AppData\\Local\\Programs\\Python\\Python310\\lib\\tkinter\\constants.py',
-   'PYMODULE'),
-  ('tkinter.messagebox',
-   'C:\\Users\\Gauthier '
-   'Argentiéri\\AppData\\Local\\Programs\\Python\\Python310\\lib\\tkinter\\messagebox.py',
-   'PYMODULE'),
-  ('tkinter.ttk',
-   'C:\\Users\\Gauthier '
-   'Argentiéri\\AppData\\Local\\Programs\\Python\\Python310\\lib\\tkinter\\ttk.py',
    'PYMODULE'),
   ('token',
    'C:\\Users\\Gauthier '
