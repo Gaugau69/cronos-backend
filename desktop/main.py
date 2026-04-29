@@ -26,7 +26,6 @@ BACKEND_URL = "https://web-production-3668.up.railway.app"
 
 
 def dump_token(api: Garmin) -> str:
-    """Sérialise la session Garmin pour envoi au backend."""
     try:
         return json.dumps(api.garth.dump())
     except AttributeError:
@@ -34,6 +33,7 @@ def dump_token(api: Garmin) -> str:
             "version": "0.3",
             "client": base64.b64encode(pickle.dumps(api.client)).decode("utf-8"),
             "username": getattr(api, "username", ""),
+            "display_name": getattr(api, "display_name", ""),  # UUID Garmin
         }
         return json.dumps(token_data)
 
@@ -152,6 +152,8 @@ class AionApp(tk.Tk):
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
             api = Garmin(email, pwd)
             api.login()
+            print(f"display_name: {api.display_name}")
+            print(f"username: {api.username}")
             token_json = dump_token(api)
 
             # ── 2. Envoi du token à Railway (pas de re-login côté serveur) ──

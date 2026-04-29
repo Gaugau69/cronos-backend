@@ -17,6 +17,34 @@ from app.db import User
 log = logging.getLogger(__name__)
 
 
+def _extract_display_name_from_token(token_data: dict) -> str:
+    """
+    Extrait le display_name (UUID Garmin) depuis le JWT di_token.
+    C'est l'UUID utilisé dans les URLs de l'API Garmin.
+    """
+    # Cas 1 : display_name déjà stocké dans le token
+    if token_data.get("display_name"):
+        return token_data["display_name"]
+
+    # Cas 2 : extraire depuis le JWT di_token
+    di_token = token_data.get("di_token", "")
+    if di_token:
+        try:
+            payload = di_token.split(".")[1]
+            # Padding base64
+            payload += "=" * (4 - len(payload) % 4)
+            decoded = json.loads(base64.b64decode(payload))
+            # L'UUID est dans "sub" ou "clientId"
+            uuid = decoded.get("sub") or decoded.get("clientId") or decoded.get("clid", "")
+            if uuid:
+                log.info(f"display_name extrait du JWT: {uuid}")
+                return uuid
+        except Exception as e:
+            log.warning(f"Impossible d'extraire display_name du JWT: {e}")
+
+    return ""
+
+
 def _dump_token(api: Garmin) -> str:
     """Sérialise la session Garmin en JSON string pour stockage DB."""
     try:
@@ -52,20 +80,13 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
             api = Garmin(email, "")
             api.client = pickle.loads(base64.b64decode(token_data["client"]))
 
-            # Force l'initialisation du display_name
-            # Nécessaire pour get_heart_rates, get_steps_data, get_stats
-            try:
-                profile = api.get_user_profile()
-                api.display_name = (
-                    profile.get("displayName")
-                    or profile.get("userName", "")
-                )
-                log.info(f"display_name initialisé : {api.display_name}")
-            except Exception as e:
-                log.warning(f"Impossible d'initialiser display_name via profil: {e}")
-                # Fallback : utiliser le display_name stocké dans le token
-                api.display_name = token_data.get("display_name", "")
-                log.info(f"display_name fallback : {api.display_name}")
+            # Extrait automatiquement le display_name depuis le JWT
+            display_name = _extract_display_name_from_token(token_data)
+            if display_name:
+                api.display_name = display_name
+                log.info(f"display_name restauré : {display_name}")
+            else:
+                log.warning("display_name introuvable dans le token")
 
             return api
 
@@ -106,9 +127,7 @@ async def login_and_save_token(db: AsyncSession, name: str, email: str, password
 
 
 async def get_api(db: AsyncSession, user: User) -> Garmin | None:
-    """
-    Reconstruit une session Garmin depuis le token stocké en DB.
-    """
+    """Reconstruit une session Garmin depuis le token stocké en DB."""
     if not user.token_json:
         log.error(f"No token for {user.name}")
         return None
