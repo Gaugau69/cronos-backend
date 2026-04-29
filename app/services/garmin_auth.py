@@ -19,14 +19,11 @@ log = logging.getLogger(__name__)
 
 def _dump_token(api: Garmin) -> str:
     """Sérialise la session Garmin en JSON string pour stockage DB."""
-    # garminconnect 0.3.x utilise api.client pour la session
     try:
-        # Tentative garth (ancienne API)
         return json.dumps(api.garth.dump())
     except AttributeError:
         pass
     try:
-        # Nouvelle API 0.3.x — sérialise le client via pickle encodé en base64
         token_data = {
             "version": "0.3",
             "client": base64.b64encode(pickle.dumps(api.client)).decode("utf-8"),
@@ -54,6 +51,22 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
         if token_data.get("version") == "0.3" and token_data.get("client"):
             api = Garmin(email, "")
             api.client = pickle.loads(base64.b64decode(token_data["client"]))
+
+            # Force l'initialisation du display_name
+            # Nécessaire pour get_heart_rates, get_steps_data, get_stats
+            try:
+                profile = api.get_user_profile()
+                api.display_name = (
+                    profile.get("displayName")
+                    or profile.get("userName", "")
+                )
+                log.info(f"display_name initialisé : {api.display_name}")
+            except Exception as e:
+                log.warning(f"Impossible d'initialiser display_name via profil: {e}")
+                # Fallback : utiliser le display_name stocké dans le token
+                api.display_name = token_data.get("display_name", "")
+                log.info(f"display_name fallback : {api.display_name}")
+
             return api
 
     except Exception as e:
@@ -69,7 +82,6 @@ async def login_and_save_token(db: AsyncSession, name: str, email: str, password
     try:
         api = Garmin(email, password)
         api.login()
-
         token_json = _dump_token(api)
 
         stmt = (
