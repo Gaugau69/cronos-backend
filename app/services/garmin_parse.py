@@ -16,6 +16,7 @@ def _safe(fn, *args, default=None):
     try:
         result = fn(*args)
         time.sleep(_SLEEP)
+        log.info(f"✓ {fn.__name__} OK")
         return result
     except Exception as e:
         log.warning(f"{fn.__name__}: {e}")

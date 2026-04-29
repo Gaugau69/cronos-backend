@@ -66,7 +66,7 @@ class AionApp(tk.Tk):
         tk.Label(form, text="TON PRÉNOM", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(20, 4))
         self.name_var = tk.StringVar()
-        self._entry(form, self.name_var, "ex: papa").pack(padx=20, fill="x")
+        self._entry(form, self.name_var, "ex: Laurent").pack(padx=20, fill="x")
 
         tk.Label(form, text="EMAIL GARMIN CONNECT", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(14, 4))
@@ -138,7 +138,7 @@ class AionApp(tk.Tk):
         email = self.email_var.get().strip()
         pwd   = self.pwd_var.get().strip()
 
-        if name in {"ex: papa", ""} or email in {"ton@email.com", ""} or not pwd:
+        if name in {"ex: Laurent", ""} or email in {"ton@email.com", ""} or not pwd:
             self._set_status("→ Tous les champs sont requis.", error=True)
             return
 
