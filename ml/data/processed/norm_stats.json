@@ -4,8 +4,8 @@
     "iqr": 1.0
   },
   "hr_rest": {
-    "median": 0.0,
-    "iqr": 1.0
+    "median": 52.0,
+    "iqr": 9.0
   },
   "sleep_duration": {
     "median": 8.45,
