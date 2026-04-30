@@ -2,7 +2,7 @@
 desktop/build.py — Compile main.py en .exe avec PyInstaller
 
 Usage:
-    cd aion_backend
+    cd cronos_backend
     python desktop/build.py
 """
 
@@ -13,7 +13,7 @@ cmd = [
     sys.executable, "-m", "PyInstaller",
     "--onefile",                          # Un seul .exe
     "--windowed",                         # Pas de console noire
-    "--name", "AION Garmin Connector",
+    "--name", "CRONOS Garmin Connector",
     "--distpath", "desktop/dist",         # Sortie dans desktop/dist/
     "--workpath", "desktop/build_tmp",    # Fichiers temporaires
     "--specpath", "desktop",
@@ -25,7 +25,7 @@ result = subprocess.run(cmd)
 
 if result.returncode == 0:
     print("\n✓ Compilation réussie !")
-    print("→ Fichier : desktop/dist/AION Garmin Connector.exe")
+    print("→ Fichier : desktop/dist/CRONOS Garmin Connector.exe")
     print("→ Envoie ce fichier à tes utilisateurs")
 else:
     print("\n✗ Erreur de compilation")

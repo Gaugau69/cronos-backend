@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="AION Backend", version="0.1.0")
+app = FastAPI(title="CRONOS Backend", version="0.1.0")
 
 app.include_router(users.router)
 app.include_router(data.router)
@@ -62,7 +62,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", include_in_schema=False)
 async def serve_landing():
-    """Page de présentation AION."""
+    """Page de présentation CRONOS."""
     return FileResponse(STATIC_DIR / "landing.html")
 
 

@@ -1,5 +1,5 @@
 """
-desktop/main.py — Application desktop AION Garmin Connector
+desktop/main.py — Application desktop CRONOS Garmin Connector
 
 Flow :
   1. L'utilisateur rentre email + mdp
@@ -8,7 +8,7 @@ Flow :
 
 Compilation :
     pip install pyinstaller garminconnect requests
-    pyinstaller --onefile --windowed --name "AION Garmin Connector" desktop/main.py
+    pyinstaller --onefile --windowed --name "CRONOS Garmin Connector" desktop/main.py
 """
 
 import json
@@ -38,10 +38,10 @@ def dump_token(api: Garmin) -> str:
         return json.dumps(token_data)
 
 
-class AionApp(tk.Tk):
+class CronosApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("AION — Connexion Garmin")
+        self.title("CRONOS — Connexion Garmin")
         self.geometry("420x520")
         self.resizable(False, False)
         self.configure(bg="#0a0a0f")
@@ -51,7 +51,7 @@ class AionApp(tk.Tk):
         header = tk.Frame(self, bg="#0a0a0f")
         header.pack(pady=(32, 0))
 
-        tk.Label(header, text="AION", font=("Arial", 28, "bold"),
+        tk.Label(header, text="CRONOS", font=("Arial", 28, "bold"),
                  fg="#6ee7b7", bg="#0a0a0f").pack()
         tk.Label(header, text="Connecte ton compte Garmin",
                  font=("Arial", 13), fg="#e2e8f0", bg="#0a0a0f").pack(pady=(4, 0))
@@ -157,7 +157,7 @@ class AionApp(tk.Tk):
             token_json = dump_token(api)
 
             # ── 2. Envoi du token à Railway (pas de re-login côté serveur) ──
-            self._set_status("Envoi sécurisé au serveur AION...", error=False, color="#6ee7b7")
+            self._set_status("Envoi sécurisé au serveur CRONOS...", error=False, color="#6ee7b7")
             resp = requests.post(
                 f"{BACKEND_URL}/users/register-token",
                 json={"name": name, "email": email, "token_json": token_json},
@@ -205,5 +205,5 @@ class AionApp(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = AionApp()
+    app = CronosApp()
     app.mainloop()

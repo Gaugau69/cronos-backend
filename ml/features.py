@@ -1,5 +1,5 @@
 """
-ml/features.py — Pipeline de feature engineering pour AION.
+ml/features.py — Pipeline de feature engineering pour CRONOS.
 
 Construit le tenseur (N_windows, L, F) pour le modèle JEPA :
   - N_windows : nombre de fenêtres glissantes disponibles
@@ -301,22 +301,22 @@ def build_dataset(
         meta   : DataFrame avec infos sur chaque fenêtre
         stats  : dict des stats de normalisation (à sauvegarder pour l'inférence)
     """
-    print(f"[AION] Chargement des données pour {user or 'tous les users'}...")
+    print(f"[CRONOS] Chargement des données pour {user or 'tous les users'}...")
     daily, acts = load_data(daily_path, activities_path, user=user)
     print(f"  → {len(daily)} jours, {len(acts)} activités")
 
-    print("[AION] Agrégation des activités...")
+    print("[CRONOS] Agrégation des activités...")
     acts_agg = aggregate_activities(acts)
 
-    print("[AION] Construction des features journalières...")
+    print("[CRONOS] Construction des features journalières...")
     df = build_daily_features(daily, acts_agg)
     print(f"  → {len(df)} jours avec features")
 
-    print("[AION] Normalisation robuste par athlète...")
+    print("[CRONOS] Normalisation robuste par athlète...")
     stats = compute_normalization_stats(df)
     df_norm = normalize(df, stats)
 
-    print(f"[AION] Fenêtres glissantes (L={window}, step={step})...")
+    print(f"[CRONOS] Fenêtres glissantes (L={window}, step={step})...")
     X, meta = build_windows(df_norm, window=window, step=step)
     print(f"  → {X.shape[0]} fenêtres — shape finale : {X.shape}")
 
@@ -342,7 +342,7 @@ def describe_dataset(X: np.ndarray, meta: pd.DataFrame) -> None:
     """Affiche un résumé du dataset construit."""
     N, L, F = X.shape
     print(f"\n{'='*50}")
-    print(f"Dataset AION")
+    print(f"Dataset CRONOS")
     print(f"{'='*50}")
     print(f"  Fenêtres  : {N}")
     print(f"  Fenêtre   : {L} jours")
@@ -384,7 +384,7 @@ def get_targets(X: np.ndarray, horizon: int = 1) -> tuple[np.ndarray, np.ndarray
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="AION — Feature engineering")
+    parser = argparse.ArgumentParser(description="CRONOS — Feature engineering")
     parser.add_argument("--daily",      required=True, help="Chemin vers daily_metrics.csv")
     parser.add_argument("--activities", required=True, help="Chemin vers activities.csv")
     parser.add_argument("--user",       default=None,  help="Nom de l'utilisateur (optionnel)")
