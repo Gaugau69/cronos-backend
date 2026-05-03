@@ -2,13 +2,10 @@
 desktop/main.py — Application desktop CRONOS Garmin Connector
 
 Flow :
-  1. L'utilisateur rentre email + mdp
-  2. Le login Garmin se fait LOCALEMENT (depuis l'IP de l'utilisateur)
-  3. Le token généré est envoyé à Railway — jamais le mdp
-
-Compilation :
-    pip install pyinstaller garminconnect requests
-    pyinstaller --onefile --windowed --name "CRONOS Garmin Connector" desktop/main.py
+  1. L'utilisateur rentre prénom + email + mdp
+  2. Login Garmin LOCAL (depuis l'IP de l'utilisateur)
+  3. Si 2FA requise → affiche un champ pour entrer le code
+  4. Le token est envoyé à Railway — jamais le mdp
 """
 
 import json
@@ -20,9 +17,7 @@ import tkinter as tk
 import requests
 from garminconnect import Garmin, GarminConnectAuthenticationError
 
-# ── Config ────────────────────────────────────────────────────────────────────
 BACKEND_URL = "https://web-production-3668.up.railway.app"
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def dump_token(api: Garmin) -> str:
@@ -33,25 +28,32 @@ def dump_token(api: Garmin) -> str:
             "version": "0.3",
             "client": base64.b64encode(pickle.dumps(api.client)).decode("utf-8"),
             "username": getattr(api, "username", ""),
-            "display_name": getattr(api, "display_name", ""),  # UUID Garmin
+            "display_name": getattr(api, "display_name", ""),
         }
         return json.dumps(token_data)
 
 
-class CronosApp(tk.Tk):
+class AionApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("CRONOS — Connexion Garmin")
-        self.geometry("420x520")
+        self.geometry("420x600")
         self.resizable(False, False)
         self.configure(bg="#0a0a0f")
+
+        # État interne pour la 2FA
+        self._api = None
+        self._name = None
+        self._email = None
+        self._mfa_pending = False
+
         self._build_ui()
 
     def _build_ui(self):
         header = tk.Frame(self, bg="#0a0a0f")
         header.pack(pady=(32, 0))
 
-        tk.Label(header, text="CRONOS", font=("Arial", 28, "bold"),
+        tk.Label(header, text="CRONOS", font=("Arial", 26, "bold"),
                  fg="#6ee7b7", bg="#0a0a0f").pack()
         tk.Label(header, text="Connecte ton compte Garmin",
                  font=("Arial", 13), fg="#e2e8f0", bg="#0a0a0f").pack(pady=(4, 0))
@@ -59,26 +61,26 @@ class CronosApp(tk.Tk):
                  text="Tes données restent privées.\nTon mot de passe n'est jamais stocké.",
                  font=("Arial", 10), fg="#64748b", bg="#0a0a0f", justify="center").pack(pady=(8, 0))
 
-        form = tk.Frame(self, bg="#13131a", bd=0, highlightthickness=1,
-                        highlightbackground="#1e1e2e")
-        form.pack(padx=32, pady=24, fill="x")
+        self.form = tk.Frame(self, bg="#13131a", bd=0, highlightthickness=1,
+                             highlightbackground="#1e1e2e")
+        self.form.pack(padx=32, pady=24, fill="x")
 
-        tk.Label(form, text="TON PRÉNOM", font=("Arial", 9, "bold"),
+        tk.Label(self.form, text="TON PRÉNOM", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(20, 4))
         self.name_var = tk.StringVar()
-        self._entry(form, self.name_var, "ex: Laurent").pack(padx=20, fill="x")
+        self._entry(self.form, self.name_var, "ex: Laurent").pack(padx=20, fill="x")
 
-        tk.Label(form, text="EMAIL GARMIN CONNECT", font=("Arial", 9, "bold"),
+        tk.Label(self.form, text="EMAIL GARMIN CONNECT", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(14, 4))
         self.email_var = tk.StringVar()
-        self._entry(form, self.email_var, "ton@email.com").pack(padx=20, fill="x")
+        self._entry(self.form, self.email_var, "ton@email.com").pack(padx=20, fill="x")
 
-        tk.Label(form, text="MOT DE PASSE GARMIN CONNECT", font=("Arial", 9, "bold"),
+        tk.Label(self.form, text="MOT DE PASSE GARMIN CONNECT", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(14, 4))
         self.pwd_var = tk.StringVar()
-        self._entry(form, self.pwd_var, "••••••••", show="•").pack(padx=20, fill="x")
+        self._entry(self.form, self.pwd_var, "••••••••", show="•").pack(padx=20, fill="x")
 
-        tk.Label(form,
+        tk.Label(self.form,
                  text="🔒  Ton mot de passe est utilisé une seule fois\npour générer un token sécurisé.",
                  font=("Arial", 9), fg="#6ee7b7", bg="#13131a", justify="left"
                  ).pack(padx=20, pady=(14, 20), anchor="w")
@@ -113,7 +115,6 @@ class CronosApp(tk.Tk):
             highlightcolor="#6ee7b7",
             show=show or ""
         )
-
         if not show:
             e.insert(0, placeholder)
             e.configure(fg="#64748b")
@@ -130,52 +131,113 @@ class CronosApp(tk.Tk):
 
             e.bind("<FocusIn>", on_focus_in)
             e.bind("<FocusOut>", on_focus_out)
-
         return e
 
     def _on_submit(self):
-        name  = self.name_var.get().strip()
-        email = self.email_var.get().strip()
-        pwd   = self.pwd_var.get().strip()
+        if self._mfa_pending:
+            # L'utilisateur soumet le code 2FA
+            code = self.mfa_var.get().strip()
+            if not code:
+                self._set_status("→ Entre le code reçu par email.", error=True)
+                return
+            self.btn.configure(state="disabled", text="Vérification...")
+            threading.Thread(target=self._submit_mfa, args=(code,), daemon=True).start()
+        else:
+            # Login normal
+            name  = self.name_var.get().strip()
+            email = self.email_var.get().strip()
+            pwd   = self.pwd_var.get().strip()
 
-        if name in {"ex: Laurent", ""} or email in {"ton@email.com", ""} or not pwd:
-            self._set_status("→ Tous les champs sont requis.", error=True)
-            return
+            if name in {"ex: Laurent", ""} or email in {"ton@email.com", ""} or not pwd:
+                self._set_status("→ Tous les champs sont requis.", error=True)
+                return
 
-        self.btn.configure(state="disabled", text="Connexion en cours...")
-        self._set_status("", error=False)
-        threading.Thread(target=self._connect, args=(name, email, pwd), daemon=True).start()
+            self.btn.configure(state="disabled", text="Connexion en cours...")
+            self._set_status("", error=False)
+            threading.Thread(target=self._connect, args=(name, email, pwd), daemon=True).start()
 
     def _connect(self, name: str, email: str, pwd: str):
         try:
-            # ── 1. Login Garmin LOCAL (depuis l'IP de l'utilisateur) ──
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
             api = Garmin(email, pwd)
-            api.login()
-            print(f"display_name: {api.display_name}")
-            print(f"username: {api.username}")
-            token_json = dump_token(api)
 
-            # ── 2. Envoi du token à Railway (pas de re-login côté serveur) ──
-            self._set_status("Envoi sécurisé au serveur CRONOS...", error=False, color="#6ee7b7")
-            resp = requests.post(
-                f"{BACKEND_URL}/users/register-token",
-                json={"name": name, "email": email, "token_json": token_json},
-                timeout=30,
-            )
+            # Tente le login — peut déclencher une demande 2FA
+            mfa_status, _ = api.login()
 
-            if resp.status_code in (200, 201):
-                self.after(0, lambda: self._show_success(name))
+            if mfa_status:
+                # 2FA requise — on garde l'api en mémoire et affiche le champ
+                self._api   = api
+                self._name  = name
+                self._email = email
+                self.after(0, self._show_mfa_form)
             else:
-                detail = resp.json().get("detail", "Erreur inconnue")
-                self._set_status(f"→ Erreur serveur : {detail}", error=True)
-                self.btn.configure(state="normal", text="Connecter mon compte")
+                # Login sans 2FA — on envoie le token
+                self._send_token(api, name, email)
 
         except GarminConnectAuthenticationError:
             self._set_status("→ Email ou mot de passe incorrect.", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
         except Exception as e:
             self._set_status(f"→ Erreur : {e}", error=True)
+            self.btn.configure(state="normal", text="Connecter mon compte")
+
+    def _show_mfa_form(self):
+        """Affiche le champ de saisie du code 2FA."""
+        self._mfa_pending = True
+
+        # Ajoute le champ 2FA dans le formulaire
+        tk.Label(self.form, text="CODE DE VÉRIFICATION (reçu par email)",
+                 font=("Arial", 9, "bold"), fg="#fbbf24", bg="#13131a"
+                 ).pack(anchor="w", padx=20, pady=(14, 4))
+
+        self.mfa_var = tk.StringVar()
+        tk.Entry(
+            self.form, textvariable=self.mfa_var,
+            font=("Courier", 14),
+            bg="#080810", fg="#fbbf24",
+            insertbackground="#fbbf24",
+            relief="flat", bd=0,
+            highlightthickness=1,
+            highlightbackground="#fbbf24",
+            justify="center"
+        ).pack(padx=20, pady=(0, 20), fill="x")
+
+        self.btn.configure(
+            state="normal",
+            text="Valider le code",
+            bg="#fbbf24",
+        )
+        self._set_status(
+            "Garmin a envoyé un code à ton email.\nEntre-le ci-dessus.",
+            error=False, color="#fbbf24"
+        )
+
+    def _submit_mfa(self, code: str):
+        try:
+            self._set_status("Vérification du code...", error=False, color="#6ee7b7")
+            self._api.resume_login(mfa_token=code)
+            self._send_token(self._api, self._name, self._email)
+        except Exception as e:
+            self._set_status(f"→ Code invalide ou expiré : {e}", error=True)
+            self.btn.configure(state="normal", text="Valider le code")
+
+    def _send_token(self, api: Garmin, name: str, email: str):
+        try:
+            token_json = dump_token(api)
+            self._set_status("Envoi sécurisé au serveur...", error=False, color="#6ee7b7")
+            resp = requests.post(
+                f"{BACKEND_URL}/users/register-token",
+                json={"name": name, "email": email, "token_json": token_json},
+                timeout=30,
+            )
+            if resp.status_code in (200, 201):
+                self.after(0, lambda: self._show_success(name))
+            else:
+                detail = resp.json().get("detail", "Erreur inconnue")
+                self._set_status(f"→ Erreur serveur : {detail}", error=True)
+                self.btn.configure(state="normal", text="Connecter mon compte")
+        except Exception as e:
+            self._set_status(f"→ Erreur envoi token : {e}", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
 
     def _show_success(self, name: str):
@@ -205,5 +267,5 @@ class CronosApp(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = CronosApp()
+    app = AionApp()
     app.mainloop()
