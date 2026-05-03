@@ -22,15 +22,17 @@ BACKEND_URL = "https://web-production-3668.up.railway.app"
 
 def dump_token(api: Garmin) -> str:
     try:
-        return json.dumps(api.garth.dump())
-    except AttributeError:
+        # Nouvelle API 0.3.x — utilise dump() natif du client
+        dumped = api.client.dumps()
         token_data = {
             "version": "0.3",
-            "client": base64.b64encode(pickle.dumps(api.client)).decode("utf-8"),
+            "client_dump": dumped,
             "username": getattr(api, "username", ""),
             "display_name": getattr(api, "display_name", ""),
         }
         return json.dumps(token_data)
+    except Exception as e:
+        raise Exception(f"Impossible de sérialiser le token: {e}")
 
 
 class AionApp(tk.Tk):
@@ -45,6 +47,7 @@ class AionApp(tk.Tk):
         self._api = None
         self._name = None
         self._email = None
+        self._client_state = None
         self._mfa_pending = False
 
         self._build_ui()
@@ -160,16 +163,17 @@ class AionApp(tk.Tk):
         try:
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
             api = Garmin(email, pwd, return_on_mfa=True)
-            mfa_needed = api.login()
+            result = api.login()
+            print(dir(api.client))
 
-            if mfa_needed:
-                # 2FA requise — on garde l'api en mémoire et affiche le champ
-                self._api   = api
-                self._name  = name
+            if result:
+                client_state, _ = result
+                self._api = api
+                self._client_state = client_state  # sauvegarde le state
+                self._name = name
                 self._email = email
                 self.after(0, self._show_mfa_form)
             else:
-                # Login sans 2FA — on envoie le token
                 self._send_token(api, name, email)
 
         except GarminConnectAuthenticationError:
@@ -214,7 +218,7 @@ class AionApp(tk.Tk):
         try:
             print(f"Submitting MFA code: {code}")
             self._set_status("Vérification du code...", error=False, color="#6ee7b7")
-            self._api.resume_login(mfa_token=code)
+            self._api.resume_login(self._client_state, mfa_code=code)
             print("MFA OK")
             self._send_token(self._api, self._name, self._email)
         except Exception as e:
@@ -222,15 +226,19 @@ class AionApp(tk.Tk):
             self._set_status(f"→ Code invalide ou expiré : {e}", error=True)
             self.btn.configure(state="normal", text="Valider le code")
 
-    def _send_token(self, api: Garmin, name: str, email: str):
+    def _send_token(self, api, name, email):
+        print("_send_token appelé")
         try:
             token_json = dump_token(api)
+            print(f"Token généré : {token_json[:50]}...")
             self._set_status("Envoi sécurisé au serveur...", error=False, color="#6ee7b7")
             resp = requests.post(
                 f"{BACKEND_URL}/users/register-token",
                 json={"name": name, "email": email, "token_json": token_json},
-                timeout=30,
+                timeout=60,
             )
+            print(f"Status: {resp.status_code}")
+            print(f"Response: {resp.text}")
             if resp.status_code in (200, 201):
                 self.after(0, lambda: self._show_success(name))
             else:
@@ -238,6 +246,7 @@ class AionApp(tk.Tk):
                 self._set_status(f"→ Erreur serveur : {detail}", error=True)
                 self.btn.configure(state="normal", text="Connecter mon compte")
         except Exception as e:
+            print(f"SEND TOKEN ERROR: {e}")
             self._set_status(f"→ Erreur envoi token : {e}", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
 
