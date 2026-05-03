@@ -212,10 +212,13 @@ class AionApp(tk.Tk):
 
     def _submit_mfa(self, code: str):
         try:
+            print(f"Submitting MFA code: {code}")
             self._set_status("Vérification du code...", error=False, color="#6ee7b7")
             self._api.resume_login(mfa_token=code)
+            print("MFA OK")
             self._send_token(self._api, self._name, self._email)
         except Exception as e:
+            print(f"MFA ERROR: {e}")
             self._set_status(f"→ Code invalide ou expiré : {e}", error=True)
             self.btn.configure(state="normal", text="Valider le code")
 
