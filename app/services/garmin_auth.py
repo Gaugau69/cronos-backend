@@ -75,19 +75,26 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
             api.login(token_data)
             return api
 
-        # Nouvelle API 0.3.x
+        # Nouvelle API 0.3.x — pickle
         if token_data.get("version") == "0.3" and token_data.get("client"):
             api = Garmin(email, "")
             api.client = pickle.loads(base64.b64decode(token_data["client"]))
-
-            # Extrait automatiquement le display_name depuis le JWT
             display_name = _extract_display_name_from_token(token_data)
             if display_name:
                 api.display_name = display_name
                 log.info(f"display_name restauré : {display_name}")
             else:
                 log.warning("display_name introuvable dans le token")
+            return api
 
+        # Nouvelle API 0.3.x — dumps() natif (tokens avec 2FA)
+        if token_data.get("version") == "0.3" and token_data.get("client_dump"):
+            api = Garmin(email, "")
+            api.client.loads(token_data["client_dump"])
+            display_name = token_data.get("display_name", "")
+            if display_name:
+                api.display_name = display_name
+                log.info(f"display_name restauré (dumps) : {display_name}")
             return api
 
     except Exception as e:
