@@ -159,12 +159,10 @@ class AionApp(tk.Tk):
     def _connect(self, name: str, email: str, pwd: str):
         try:
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
-            api = Garmin(email, pwd)
+            api = Garmin(email, pwd, return_on_mfa=True)
+            mfa_needed = api.login()
 
-            # Tente le login — peut déclencher une demande 2FA
-            mfa_status, _ = api.login()
-
-            if mfa_status:
+            if mfa_needed:
                 # 2FA requise — on garde l'api en mémoire et affiche le champ
                 self._api   = api
                 self._name  = name
