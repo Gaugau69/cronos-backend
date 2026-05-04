@@ -119,11 +119,11 @@ class PeakflowApp(tk.Tk):
             watch_labels.append(display)
             self._watch_map[display] = (provider, available)
 
-        self.watch_var = tk.StringVar(value=watch_labels[0])
+        self.watch_var = tk.StringVar(value="— Choisir ma montre —")
         self.watch_combo = ttk.Combobox(
             watch_frame,
             textvariable=self.watch_var,
-            values=watch_labels,
+            values=["— Choisir ma montre —"] + watch_labels,
             state="readonly",
             style="Custom.TCombobox",
             font=("Arial", 11),
@@ -131,14 +131,11 @@ class PeakflowApp(tk.Tk):
         self.watch_combo.pack(fill="x")
         self.watch_combo.bind("<<ComboboxSelected>>", self._on_watch_change)
 
-        # ── Formulaire ──
+        # ── Formulaire (caché au départ) ──
         self.form = tk.Frame(self, bg="#13131a", bd=0, highlightthickness=1,
                              highlightbackground="#1e1e2e")
-        self.form.pack(padx=32, pady=16, fill="x")
 
-        self._build_garmin_form()
-
-        # ── Bouton ──
+        # ── Bouton (caché au départ) ──
         self.btn = tk.Button(
             self, text="Connecter mon compte",
             font=("Arial", 12, "bold"),
@@ -147,7 +144,6 @@ class PeakflowApp(tk.Tk):
             activebackground="#4ade80", activeforeground="#0a0a0f",
             command=self._on_submit, pady=12
         )
-        self.btn.pack(padx=32, fill="x")
 
         self.status_var = tk.StringVar()
         self.status_label = tk.Label(
@@ -156,6 +152,7 @@ class PeakflowApp(tk.Tk):
             wraplength=360, justify="center"
         )
         self.status_label.pack(pady=10)
+        self._form_visible = False
 
     def _build_garmin_form(self):
         """Formulaire Garmin : prénom + email + mdp."""
@@ -218,9 +215,18 @@ class PeakflowApp(tk.Tk):
 
     def _on_watch_change(self, event=None):
         selected = self.watch_var.get()
+        if selected == "— Choisir ma montre —":
+            return
+
         provider, available = self._watch_map[selected]
         self._provider = provider
         self._mfa_pending = False
+
+        # Affiche le formulaire et le bouton si pas encore visible
+        if not self._form_visible:
+            self.form.pack(padx=32, pady=16, fill="x")
+            self.btn.pack(padx=32, fill="x")
+            self._form_visible = True
 
         if not available:
             label = selected.replace("  (bientôt)", "")
