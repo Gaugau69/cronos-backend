@@ -29,7 +29,7 @@ BACKEND_URL = "https://web-production-3668.up.railway.app"
 WATCHES = [
     ("Garmin",   "garmin",   True),
     ("Polar",    "polar",    True),
-    ("Withings", "withings", True),
+    ("Withings", "withings", False),   # Bientôt
     ("Fitbit",   "fitbit",   False),   # Bientôt
     ("Whoop",    "whoop",    False),   # Bientôt
     ("Suunto",   "suunto",   False),   # Bientôt
