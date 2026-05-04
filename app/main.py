@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db import AsyncSessionLocal, init_db
-from app.routers import data, users
+from app.routers import data, users, polar
 from app.services.collect import collect_all_users_yesterday
 
 log = logging.getLogger(__name__)
@@ -52,23 +52,22 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="CRONOS Backend", version="0.1.0")
+app = FastAPI(title="CRONOS Backend", version="0.1.0", lifespan=lifespan)
 
 app.include_router(users.router)
 app.include_router(data.router)
+app.include_router(polar.router)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/", include_in_schema=False)
 async def serve_landing():
-    """Page de présentation CRONOS."""
     return FileResponse(STATIC_DIR / "landing.html")
 
 
 @app.get("/connect", include_in_schema=False)
 async def serve_connect():
-    """Formulaire de connexion Garmin."""
     return FileResponse(STATIC_DIR / "index.html")
 
 
