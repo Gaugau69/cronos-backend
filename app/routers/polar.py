@@ -120,8 +120,11 @@ def _success_page(name: str) -> str:
             <div class="check">✓</div>
             <h1>Compte Polar connecté !</h1>
             <p>Tes données, {name},<br>vont être collectées automatiquement.</p>
-            <p style="margin-top:32px; font-size:12px; color:#64748b;">Tu peux fermer cette fenêtre et revenir sur l'application.</p>
+            <p style="margin-top:32px; font-size:12px; color:#64748b;">Cette fenêtre se ferme automatiquement dans 3 secondes...</p>
         </div>
+        <script>
+            setTimeout(function() {{ window.close(); }}, 3000);
+        </script>
     </body>
     </html>
     """
