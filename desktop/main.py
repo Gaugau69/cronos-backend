@@ -61,8 +61,8 @@ class PeakflowApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Peakflow — Connexion montre")
-        self.geometry("420x600")
-        self.resizable(False, False)
+        self.geometry("420x580")
+        self.resizable(False, True)
         self.configure(bg="#0a0a0f")
 
         self._api           = None
@@ -79,8 +79,31 @@ class PeakflowApp(tk.Tk):
     # ─────────────────────────────────────────────────────────
 
     def _build_ui(self):
+        # ── Scrollable container ──
+        canvas = tk.Canvas(self, bg="#0a0a0f", highlightthickness=0)
+        scrollbar = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        self._scroll_frame = tk.Frame(canvas, bg="#0a0a0f")
+        self._scroll_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=self._scroll_frame, anchor="nw", width=420)
+
+        # Scroll avec molette
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # Utilise self._scroll_frame comme parent au lieu de self
+        parent = self._scroll_frame
+
         # ── Header ──
-        header = tk.Frame(self, bg="#0a0a0f")
+        header = tk.Frame(parent, bg="#0a0a0f")
         header.pack(pady=(28, 0))
 
         tk.Label(header, text="Peakflow", font=("Arial", 26, "bold"),
@@ -92,7 +115,7 @@ class PeakflowApp(tk.Tk):
                  font=("Arial", 10), fg="#64748b", bg="#0a0a0f", justify="center").pack(pady=(6, 0))
 
         # ── Sélecteur de montre ──
-        watch_frame = tk.Frame(self, bg="#0a0a0f")
+        watch_frame = tk.Frame(parent, bg="#0a0a0f")
         watch_frame.pack(padx=32, pady=(16, 0), fill="x")
 
         tk.Label(watch_frame, text="TA MONTRE", font=("Arial", 9, "bold"),
@@ -132,12 +155,12 @@ class PeakflowApp(tk.Tk):
         self.watch_combo.bind("<<ComboboxSelected>>", self._on_watch_change)
 
         # ── Formulaire (caché au départ) ──
-        self.form = tk.Frame(self, bg="#13131a", bd=0, highlightthickness=1,
+        self.form = tk.Frame(parent, bg="#13131a", bd=0, highlightthickness=1,
                              highlightbackground="#1e1e2e")
 
         # ── Bouton (caché au départ) ──
         self.btn = tk.Button(
-            self, text="Connecter mon compte",
+            parent, text="Connecter mon compte",
             font=("Arial", 12, "bold"),
             bg="#6ee7b7", fg="#0a0a0f",
             relief="flat", cursor="hand2",
@@ -147,12 +170,13 @@ class PeakflowApp(tk.Tk):
 
         self.status_var = tk.StringVar()
         self.status_label = tk.Label(
-            self, textvariable=self.status_var,
+            parent, textvariable=self.status_var,
             font=("Arial", 10), bg="#0a0a0f", fg="#f87171",
             wraplength=360, justify="center"
         )
         self.status_label.pack(pady=10)
         self._form_visible = False
+        self._parent = parent
 
     def _build_garmin_form(self):
         """Formulaire Garmin : prénom + email + mdp."""
