@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db import AsyncSessionLocal, init_db
-from app.routers import data, users, polar
+from app.routers import data, users, polar, withings
 from app.services.collect import collect_all_users_yesterday
 
 log = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ app = FastAPI(title="CRONOS Backend", version="0.1.0", lifespan=lifespan)
 app.include_router(users.router)
 app.include_router(data.router)
 app.include_router(polar.router)
+app.include_router(withings.router)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

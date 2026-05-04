@@ -13,7 +13,7 @@ cmd = [
     sys.executable, "-m", "PyInstaller",
     "--onefile",                          # Un seul .exe
     "--windowed",                         # Pas de console noire
-    "--name", "CRONOS Garmin Connector",
+    "--name", "CRONOS",
     "--distpath", "desktop/dist",         # Sortie dans desktop/dist/
     "--workpath", "desktop/build_tmp",    # Fichiers temporaires
     "--specpath", "desktop",
@@ -25,7 +25,7 @@ result = subprocess.run(cmd)
 
 if result.returncode == 0:
     print("\n✓ Compilation réussie !")
-    print("→ Fichier : desktop/dist/CRONOS Garmin Connector.exe")
+    print("→ Fichier : desktop/dist/CRONOS.exe")
     print("→ Envoie ce fichier à tes utilisateurs")
 else:
     print("\n✗ Erreur de compilation")

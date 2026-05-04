@@ -27,11 +27,12 @@ from garminconnect import Garmin, GarminConnectAuthenticationError
 BACKEND_URL = "https://web-production-3668.up.railway.app"
 
 WATCHES = [
-    ("Garmin",  "garmin",  True),
-    ("Polar",   "polar",   True),
-    ("Fitbit",  "fitbit",  False),   # Bientôt
-    ("Whoop",   "whoop",   False),   # Bientôt
-    ("Suunto",  "suunto",  False),   # Bientôt
+    ("Garmin",   "garmin",   True),
+    ("Polar",    "polar",    True),
+    ("Withings", "withings", True),
+    ("Fitbit",   "fitbit",   False),   # Bientôt
+    ("Whoop",    "whoop",    False),   # Bientôt
+    ("Suunto",   "suunto",   False),   # Bientôt
 ]
 
 
@@ -181,7 +182,7 @@ class PeakflowApp(tk.Tk):
                  font=("Arial", 9), fg="#6ee7b7", bg="#13131a", justify="left"
                  ).pack(padx=20, pady=(14, 20), anchor="w")
 
-    def _build_polar_form(self):
+    def _build_polar_form(self, label: str = "Polar", color: str = "#38bdf8"):
         """Formulaire Polar : prénom + email seulement (pas de mdp)."""
         for w in self.form.winfo_children():
             w.destroy()
@@ -197,8 +198,8 @@ class PeakflowApp(tk.Tk):
         self._entry(self.form, self.email_var, "ton@email.com").pack(padx=20, fill="x")
 
         tk.Label(self.form,
-                 text="🔵  Tu seras redirigé vers Polar pour\nautoriser l'accès à tes données.",
-                 font=("Arial", 9), fg="#38bdf8", bg="#13131a", justify="left"
+                 text=f"🔵  Tu seras redirigé vers {label} pour\nautoriser l'accès à tes données.",
+                 font=("Arial", 9), fg=color, bg="#13131a", justify="left"
                  ).pack(padx=20, pady=(14, 20), anchor="w")
 
     def _build_coming_soon_form(self, label: str):
@@ -227,9 +228,13 @@ class PeakflowApp(tk.Tk):
             self.btn.configure(state="disabled", bg="#1e1e2e", fg="#64748b",
                                text="Bientôt disponible")
         elif provider == "polar":
-            self._build_polar_form()
+            self._build_polar_form("Polar", "#38bdf8")
             self.btn.configure(state="normal", bg="#38bdf8", fg="#0a0a0f",
                                text="Connecter ma Polar →")
+        elif provider == "withings":
+            self._build_polar_form("Withings", "#a78bfa")
+            self.btn.configure(state="normal", bg="#a78bfa", fg="#0a0a0f",
+                               text="Connecter ma Withings →")
         else:
             self._build_garmin_form()
             self.btn.configure(state="normal", bg="#6ee7b7", fg="#0a0a0f",
@@ -254,8 +259,8 @@ class PeakflowApp(tk.Tk):
             self._set_status("→ Tous les champs sont requis.", error=True)
             return
 
-        if self._provider == "polar":
-            self._connect_polar(name, email)
+        if self._provider in ("polar", "withings"):
+            self._connect_oauth(name, email, self._provider)
         else:
             pwd = self.pwd_var.get().strip() if hasattr(self, "pwd_var") else ""
             if not pwd:
@@ -269,20 +274,19 @@ class PeakflowApp(tk.Tk):
     # Polar
     # ─────────────────────────────────────────────────────────
 
-    def _connect_polar(self, name: str, email: str):
+    def _connect_oauth(self, name: str, email: str, provider: str):
         """Ouvre le navigateur vers le flow OAuth Polar + polling pour détecter la fin."""
         params = urlencode({"name": name, "email": email})
-        url = f"{BACKEND_URL}/auth/polar/login?{params}"
+        url = f"{BACKEND_URL}/auth/{provider}/login?{params}"
         webbrowser.open(url)
         self._set_status(
             "🔵 Autorise l'accès sur le site Polar qui vient de s'ouvrir...\nL'app détectera automatiquement quand c'est fait.",
             error=False, color="#38bdf8"
         )
         self.btn.configure(state="disabled", text="En attente...")
-        # Démarre le polling en arrière-plan
-        threading.Thread(target=self._poll_polar_status, args=(name,), daemon=True).start()
+        threading.Thread(target=self._poll_oauth_status, args=(name, provider), daemon=True).start()
 
-    def _poll_polar_status(self, name: str):
+    def _poll_oauth_status(self, name: str, provider: str):
         """Vérifie toutes les 3 secondes si l'auth Polar est complète."""
         import time
         max_attempts = 60  # 3 min max
@@ -290,7 +294,7 @@ class PeakflowApp(tk.Tk):
             time.sleep(3)
             try:
                 resp = requests.get(
-                    f"{BACKEND_URL}/auth/polar/status",
+                    f"{BACKEND_URL}/auth/{provider}/status",
                     params={"name": name},
                     timeout=10,
                 )
