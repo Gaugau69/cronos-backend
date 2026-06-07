@@ -1,0 +1,93 @@
+"""
+app/routers/notifications.py — Gestion des préférences de notifications email.
+
+Endpoints :
+    GET  /users/{name}/notifications          → préférences actuelles
+    PUT  /users/{name}/notifications          → activer / désactiver / changer l'heure
+    POST /users/{name}/notifications/test     → envoie un email de test
+"""
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import NotificationPrefs, User, get_db
+
+router = APIRouter(tags=["notifications"])
+
+
+async def _get_user(db: AsyncSession, name: str) -> User:
+    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, f"User '{name}' introuvable.")
+    return user
+
+
+class NotifPrefsIn(BaseModel):
+    email_enabled: bool
+    send_hour: int = 7   # 0-23 UTC
+
+
+@router.get("/users/{name}/notifications")
+async def get_notifications(name: str, db: AsyncSession = Depends(get_db)):
+    user = await _get_user(db, name)
+    prefs = (await db.execute(
+        select(NotificationPrefs).where(NotificationPrefs.user_id == user.id)
+    )).scalar_one_or_none()
+
+    return {
+        "email_enabled": prefs.email_enabled if prefs else False,
+        "send_hour":     prefs.send_hour     if prefs else 7,
+        "email":         user.email,
+    }
+
+
+@router.put("/users/{name}/notifications")
+async def update_notifications(
+    name: str,
+    payload: NotifPrefsIn,
+    db: AsyncSession = Depends(get_db),
+):
+    user  = await _get_user(db, name)
+    prefs = (await db.execute(
+        select(NotificationPrefs).where(NotificationPrefs.user_id == user.id)
+    )).scalar_one_or_none()
+
+    if prefs:
+        prefs.email_enabled = payload.email_enabled
+        prefs.send_hour     = max(0, min(23, payload.send_hour))
+    else:
+        db.add(NotificationPrefs(
+            user_id       = user.id,
+            email_enabled = payload.email_enabled,
+            send_hour     = max(0, min(23, payload.send_hour)),
+        ))
+
+    await db.commit()
+    return {"status": "ok", "email_enabled": payload.email_enabled}
+
+
+@router.post("/users/{name}/notifications/test")
+async def send_test_notification(name: str, db: AsyncSession = Depends(get_db)):
+    """Envoie un email de test avec les recommandations actuelles."""
+    from app.services.email_service import send_daily_recommendation
+
+    user = await _get_user(db, name)
+    if not user.email:
+        raise HTTPException(400, "Pas d'email enregistré pour cet utilisateur.")
+
+    # Génère les recommandations fraîches
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"http://localhost:8001/users/{name}/recommend", timeout=15)
+        payload = r.json()
+    except Exception:
+        raise HTTPException(503, "Impossible de récupérer les recommandations.")
+
+    sent = send_daily_recommendation(user.email, name, payload)
+    if not sent:
+        raise HTTPException(500, "Échec de l'envoi. Vérifiez la configuration SMTP.")
+
+    return {"status": "sent", "to": user.email}

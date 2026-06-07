@@ -1,18 +1,23 @@
 """
-app/routers/data.py — Collecte manuelle et lecture des données stockées.
+app/routers/data.py — Collecte manuelle, métriques et recommandations CRONOS.
 """
 
+import json
 from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import Activity, AthleteProfile, DailyMetric, PlannedRace, User, get_db
+from app.db import (
+    Activity, AthleteProfile, DailyMetric, PlannedRace,
+    RecommendationsCache, SessionFeedback, SessionHistory, User, get_db,
+)
 from app.schemas import ActivityOut, CollectRequest, DailyMetricOut
 from app.services.collect import collect_user_range
+from app.services.ml_recommender import ml_recommend
 
 router = APIRouter(tags=["data"])
 
@@ -200,7 +205,55 @@ def _days_to_next_race_sync(races: list) -> int | None:
         return None
 
 
-def _compute_recovery(metrics: list) -> tuple[float, dict]:
+def _compute_training_load(activities: list) -> dict:
+    """
+    Charge d'entraînement sur 7j / 42j.
+    Returns dict with ATL, CTL, TSB, weekly_km, weekly_sessions.
+    """
+    import numpy as np
+    today = date.today()
+
+    loads_7  = []
+    loads_42 = []
+    km_7  = 0.0
+    sess_7 = 0
+
+    for a in activities:
+        adate = a.date
+        load = float(a.duration_min or 0) * float(a.avg_hr or 0) / 100
+        days_ago = (today - adate).days
+
+        if days_ago <= 42:
+            loads_42.append(load)
+        if days_ago <= 7:
+            loads_7.append(load)
+            km_7   += float(a.distance_km or 0)
+            sess_7 += 1
+
+    atl = float(np.mean(loads_7))  if loads_7  else 0.0
+    ctl = float(np.mean(loads_42)) if loads_42 else 0.0
+    tsb = round(ctl - atl, 1)      # positif = fraîcheur, négatif = fatigue
+
+    return {
+        "atl":              round(atl, 1),
+        "ctl":              round(ctl, 1),
+        "tsb":              tsb,
+        "weekly_km":        round(km_7, 1),
+        "weekly_sessions":  sess_7,
+        "load_trend":       (
+            "surcharge"   if tsb < -20 else
+            "charge"      if tsb < -5  else
+            "équilibré"   if tsb < 10  else
+            "fraîcheur"
+        ),
+    }
+
+
+def _compute_recovery(metrics: list, load_info: Optional[dict] = None) -> tuple[float, dict]:
+    """
+    Recovery score 0-1 basé sur HRV (50%), sommeil (30%), body battery (20%).
+    Le TSB de la charge 7j affine légèrement le score final.
+    """
     import numpy as np
     if not metrics:
         return 0.5, {}
@@ -223,6 +276,20 @@ def _compute_recovery(metrics: list) -> tuple[float, dict]:
     if bb_today:
         recovery += (bb_today / 100 - 0.5) * 0.2
         n_signals += 1
+
+    # Ajustement TSB : surcharge → -5%, fraîcheur excessive → léger boost
+    if load_info:
+        tsb = load_info.get("tsb", 0)
+        if tsb < -20:
+            recovery = max(0.05, recovery - 0.08)
+        elif tsb < -10:
+            recovery = max(0.05, recovery - 0.04)
+        elif tsb > 15:
+            recovery = min(0.95, recovery + 0.03)
+        if load_info.get("weekly_sessions", 0) == 0:
+            recovery = min(0.95, recovery + 0.05)
+        n_signals += 1
+
     recovery = max(0.05, min(0.95, recovery))
     return recovery, {
         "hrv_today":    round(hrv_today, 1) if hrv_today else None,
@@ -240,6 +307,8 @@ def _rank_sessions(
     top_k: int = 5,
     goal: str | None = None,
     target_dist: str | None = None,
+    feedback_adjustments: dict | None = None,
+    recent_session_ids: list[int] | None = None,
 ) -> list[dict]:
 
     # J-1 ou J0 : activation uniquement
@@ -325,6 +394,14 @@ def _rank_sessions(
         if target_dist and s["id"] in DIST_SESSION_MAP.get(target_dist, []):
             score = min(0.97, score * 1.2)
 
+        # Ajustement feedback (bonus facile, malus difficile)
+        if feedback_adjustments and s["id"] in feedback_adjustments:
+            score = max(0.03, min(0.97, score + feedback_adjustments[s["id"]]))
+
+        # Anti-répétition : pénalise les séances faites dans les 3 derniers jours
+        if recent_session_ids and s["id"] in recent_session_ids:
+            score = max(0.03, score * 0.45)
+
         scored.append((max(0.03, min(0.97, score)), s))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -346,61 +423,77 @@ def _rank_sessions(
 async def recommend_sessions(
     name: str,
     top_k: int = Query(5, ge=1, le=10),
+    refresh: bool = Query(False, description="Forcer le recalcul même si le cache existe"),
     db: AsyncSession = Depends(get_db),
 ):
+    import numpy as np
+
     user = await _get_user(db, name)
 
-    # Métriques 15 derniers jours
-    since = date.today() - timedelta(days=15)
+    # ── Cache du jour ────────────────────────────────────────────────────────
+    if not refresh:
+        cached = (await db.execute(
+            select(RecommendationsCache)
+            .where(RecommendationsCache.user_id == user.id)
+            .where(RecommendationsCache.cache_date == date.today())
+        )).scalar_one_or_none()
+
+        if cached:
+            return {
+                "user":            name,
+                "date":            date.today().isoformat(),
+                "cached":          True,
+                "computed_with_ml":cached.computed_with_ml,
+                "recovery":        json.loads(cached.recovery_json or "{}"),
+                "athlete":         json.loads(cached.athlete_json  or "{}"),
+                "load":            json.loads(cached.load_json     or "{}"),
+                "recommendations": json.loads(cached.recommendations_json),
+            }
+
+    # ── Métriques 21 derniers jours ──────────────────────────────────────────
     metrics = (await db.execute(
         select(DailyMetric)
         .where(DailyMetric.user_id == user.id)
-        .where(DailyMetric.date >= since)
+        .where(DailyMetric.date >= date.today() - timedelta(days=21))
         .order_by(DailyMetric.date.desc())
     )).scalars().all()
 
     if not metrics:
         raise HTTPException(400, "Pas de données disponibles.")
 
-    recovery, signals = _compute_recovery(metrics)
-
-    # Allure moyenne depuis les activités Garmin (30 derniers jours)
-    since_acts = date.today() - timedelta(days=30)
-    activities = (await db.execute(
+    # ── Activités running 42j (ATL/CTL + allure) ────────────────────────────
+    activities_42 = (await db.execute(
         select(Activity)
         .where(Activity.user_id == user.id)
-        .where(Activity.date >= since_acts)
+        .where(Activity.date >= date.today() - timedelta(days=42))
         .where(Activity.activity_type.in_(["running", "trail_running", "treadmill_running"]))
+        .order_by(Activity.date.desc())
     )).scalars().all()
 
-    avg_pace_kmh = None
-    if activities:
-        speeds = [float(a.avg_speed_kmh) for a in activities if a.avg_speed_kmh and a.avg_speed_kmh > 0]
-        if speeds:
-            import numpy as np
-            avg_pace_kmh = float(np.mean(speeds))
+    # ── Charge 7j glissants ──────────────────────────────────────────────────
+    load_info = _compute_training_load(activities_42)
 
-    # Niveau depuis allure Garmin
+    # ── Recovery score (avec charge) ─────────────────────────────────────────
+    recovery, signals = _compute_recovery(metrics, load_info)
+
+    # ── Allure + niveau ───────────────────────────────────────────────────────
+    speeds = [float(a.avg_speed_kmh) for a in activities_42 if a.avg_speed_kmh and a.avg_speed_kmh > 0]
+    avg_pace_kmh = float(np.mean(speeds)) if speeds else None
     user_level = _get_user_level(avg_pace_kmh)
 
-    # Profil athlète déclaré
+    # ── Profil déclaré ────────────────────────────────────────────────────────
     profile = (await db.execute(
         select(AthleteProfile).where(AthleteProfile.user_id == user.id)
     )).scalar_one_or_none()
 
-    goal        = None
-    target_dist = None
-
+    goal = target_dist = None
     if profile:
-        # Fusionne niveau Garmin + niveau déclaré (prend le max)
         if profile.level:
-            declared_level = LEVEL_MAP.get(profile.level, 0)
-            user_level = max(user_level, declared_level)
-
+            user_level = max(user_level, LEVEL_MAP.get(profile.level, 0))
         goal        = profile.primary_goal
         target_dist = profile.target_distance
 
-    # Prochaine course
+    # ── Prochaine course ──────────────────────────────────────────────────────
     races = (await db.execute(
         select(PlannedRace)
         .where(PlannedRace.user_id == user.id)
@@ -411,28 +504,106 @@ async def recommend_sessions(
 
     days_to_race = _days_to_next_race_sync(races)
 
-    recommendations = _rank_sessions(recovery, user_level, days_to_race, top_k, goal, target_dist)
+    # ── Historique 3j — anti-répétition ──────────────────────────────────────
+    recent_history = (await db.execute(
+        select(SessionHistory)
+        .where(SessionHistory.user_id == user.id)
+        .where(SessionHistory.done_at >= date.today() - timedelta(days=3))
+    )).scalars().all()
+    recent_session_ids = [h.session_id for h in recent_history]
+
+    # ── Feedback utilisateur — ajustements de score ───────────────────────────
+    feedback_rows = (await db.execute(
+        select(SessionFeedback)
+        .where(SessionFeedback.user_id == user.id)
+        .where(SessionFeedback.done_at >= date.today() - timedelta(days=30))
+    )).scalars().all()
+
+    # Score d'ajustement par session_id basé sur le feedback
+    feedback_adjustments: dict[int, float] = {}
+    for fb in feedback_rows:
+        adj = {"facile": 0.08, "ok": 0.0, "difficile": -0.10}.get(fb.feedback, 0.0)
+        # Décroissance temporelle : feedback récent a plus de poids
+        days_ago = (date.today() - fb.done_at).days
+        weight   = max(0.2, 1.0 - days_ago / 30)
+        feedback_adjustments[fb.session_id] = (
+            feedback_adjustments.get(fb.session_id, 0.0) + adj * weight
+        )
+
+    # ── Recommandations — ML d'abord, heuristique en fallback ────────────────
+    ml_results   = ml_recommend(
+        metrics=list(metrics),
+        activities=list(activities_42),
+        profile=profile,
+        races=list(races),
+        user_name=name,
+        top_k=top_k,
+    )
+    used_ml = ml_results is not None
+
+    if ml_results:
+        # Applique les ajustements feedback + anti-répétition sur les scores ML
+        for r in ml_results:
+            adj = feedback_adjustments.get(r["id"], 0.0)
+            score = r["score"] + adj * 100
+            if r["id"] in recent_session_ids:
+                score *= 0.45
+            r["score"] = round(max(1.0, min(99.0, score)), 1)
+        ml_results.sort(key=lambda r: r["score"], reverse=True)
+        for i, r in enumerate(ml_results):
+            r["rank"] = i + 1
+        recommendations = ml_results
+    else:
+        recommendations = _rank_sessions(
+            recovery, user_level, days_to_race, top_k, goal, target_dist,
+            feedback_adjustments=feedback_adjustments,
+            recent_session_ids=recent_session_ids,
+        )
+
+    # ── Assemblage réponse ────────────────────────────────────────────────────
+    recovery_out = {
+        "score": round(recovery * 100, 1),
+        "level": (
+            "Excellente" if recovery >= 0.75 else
+            "Bonne"      if recovery >= 0.55 else
+            "Moyenne"    if recovery >= 0.4  else
+            "Faible"
+        ),
+        **signals,
+    }
+    athlete_out = {
+        "level":             ["Débutant", "Intermédiaire", "Avancé"][user_level],
+        "avg_pace_kmh":      round(avg_pace_kmh, 1) if avg_pace_kmh else None,
+        "days_to_next_race": days_to_race,
+        "goal":              goal,
+        "target_distance":   target_dist,
+    }
+
+    # ── Mise en cache ─────────────────────────────────────────────────────────
+    await db.execute(
+        delete(RecommendationsCache)
+        .where(RecommendationsCache.user_id == user.id)
+        .where(RecommendationsCache.cache_date == date.today())
+    )
+    db.add(RecommendationsCache(
+        user_id              = user.id,
+        cache_date           = date.today(),
+        recommendations_json = json.dumps(recommendations, ensure_ascii=False),
+        athlete_json         = json.dumps(athlete_out,     ensure_ascii=False),
+        recovery_json        = json.dumps(recovery_out,    ensure_ascii=False),
+        load_json            = json.dumps(load_info,       ensure_ascii=False),
+        computed_with_ml     = used_ml,
+    ))
+    await db.commit()
 
     return {
-        "user":  name,
-        "date":  date.today().isoformat(),
-        "recovery": {
-            "score": round(recovery * 100, 1),
-            "level": (
-                "Excellente" if recovery >= 0.75 else
-                "Bonne"      if recovery >= 0.55 else
-                "Moyenne"    if recovery >= 0.4  else
-                "Faible"
-            ),
-            **signals,
-        },
-        "athlete": {
-            "level":             ["Débutant", "Intermédiaire", "Avancé"][user_level],
-            "avg_pace_kmh":      round(avg_pace_kmh, 1) if avg_pace_kmh else None,
-            "days_to_next_race": days_to_race,
-            "goal":              goal,
-            "target_distance":   target_dist,
-        },
+        "user":            name,
+        "date":            date.today().isoformat(),
+        "cached":          False,
+        "computed_with_ml":used_ml,
+        "recovery":        recovery_out,
+        "athlete":         athlete_out,
+        "load":            load_info,
         "recommendations": recommendations,
     }
 
@@ -529,4 +700,35 @@ async def get_trends(
         "n_days":  len(series),
         "summary": summary,
         "series":  series,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# HEATMAP
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/users/{name}/heatmap")
+async def get_heatmap(
+    name: str,
+    days: int = Query(90, ge=7, le=365),
+    sync: bool = Query(False, description="Télécharger les tracks manquants depuis Garmin"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retourne les points GPS des activités récentes pour la heatmap Leaflet.
+    Si sync=true, télécharge d'abord les tracks manquants depuis Garmin.
+    """
+    from app.services.heatmap import fetch_and_store_tracks, get_heatmap_points
+    user = await _get_user(db, name)
+
+    new_tracks = 0
+    if sync:
+        new_tracks = await fetch_and_store_tracks(db, user, days=days)
+
+    points = await get_heatmap_points(db, user, days=days)
+    return {
+        "user":       name,
+        "n_points":   len(points),
+        "new_tracks": new_tracks,
+        "points":     points,
     }

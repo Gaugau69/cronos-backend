@@ -48,10 +48,14 @@ class User(Base):
     garmin_email        = Column(String(255), nullable=True)
     garmin_password_enc = Column(String(500), nullable=True)
 
-    daily_metrics   = relationship("DailyMetric",   back_populates="user", cascade="all, delete-orphan")
-    activities      = relationship("Activity",      back_populates="user", cascade="all, delete-orphan")
-    athlete_profile = relationship("AthleteProfile", back_populates="user", cascade="all, delete-orphan", uselist=False)
-    planned_races   = relationship("PlannedRace",   back_populates="user", cascade="all, delete-orphan")
+    daily_metrics        = relationship("DailyMetric",         back_populates="user", cascade="all, delete-orphan")
+    activities           = relationship("Activity",            back_populates="user", cascade="all, delete-orphan")
+    athlete_profile      = relationship("AthleteProfile",      back_populates="user", cascade="all, delete-orphan", uselist=False)
+    planned_races        = relationship("PlannedRace",         back_populates="user", cascade="all, delete-orphan")
+    session_feedback     = relationship("SessionFeedback",     back_populates="user", cascade="all, delete-orphan")
+    recommendations_cache= relationship("RecommendationsCache",back_populates="user", cascade="all, delete-orphan")
+    activity_tracks      = relationship("ActivityTrack",       back_populates="user", cascade="all, delete-orphan")
+    notification_prefs   = relationship("NotificationPrefs",   back_populates="user", cascade="all, delete-orphan", uselist=False)
 
 
 class DailyMetric(Base):
@@ -226,3 +230,78 @@ class SessionHistory(Base):
     distance_km  = Column(Float, nullable=True)
     done_at      = Column(Date, nullable=False, default=date.today)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─────────────────────────────────────────────
+# C. Feedback sur les séances
+# ─────────────────────────────────────────────
+
+class SessionFeedback(Base):
+    """Retour utilisateur après une séance — 'facile', 'ok' ou 'difficile'."""
+    __tablename__ = "session_feedback"
+
+    id           = Column(Integer, primary_key=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id   = Column(Integer, nullable=False)
+    session_name = Column(String(200), nullable=False)
+    feedback     = Column(String(20), nullable=False)   # 'facile' | 'ok' | 'difficile'
+    done_at      = Column(Date, nullable=False, default=date.today)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="session_feedback")
+
+
+# ─────────────────────────────────────────────
+# D. Cache des recommandations (TTL 24h)
+# ─────────────────────────────────────────────
+
+class RecommendationsCache(Base):
+    """Cache des recommandations du jour — évite de recalculer si le contenu n'a pas changé."""
+    __tablename__ = "recommendations_cache"
+    __table_args__ = (UniqueConstraint("user_id", "cache_date", name="uq_cache_user_date"),)
+
+    id                   = Column(Integer, primary_key=True)
+    user_id              = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    cache_date           = Column(Date, nullable=False, index=True)
+    recommendations_json = Column(Text, nullable=False)
+    athlete_json         = Column(Text, nullable=True)
+    recovery_json        = Column(Text, nullable=True)
+    load_json            = Column(Text, nullable=True)
+    computed_with_ml     = Column(Boolean, default=False)
+    created_at           = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="recommendations_cache")
+
+
+# ─────────────────────────────────────────────
+# E. Tracks GPS (zones de chaleur)
+# ─────────────────────────────────────────────
+
+class ActivityTrack(Base):
+    """Coordonnées GPS d'une activité — alimentent la heatmap Leaflet."""
+    __tablename__ = "activity_tracks"
+    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_track_user_activity"),)
+
+    id               = Column(Integer, primary_key=True)
+    user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    activity_id      = Column(BigInteger, nullable=False)
+    coordinates_json = Column(Text, nullable=False)   # JSON [[lat, lng], ...]
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="activity_tracks")
+
+
+# ─────────────────────────────────────────────
+# F. Préférences de notifications
+# ─────────────────────────────────────────────
+
+class NotificationPrefs(Base):
+    """Préférences d'envoi de l'email quotidien de recommandation."""
+    __tablename__ = "notification_prefs"
+
+    id            = Column(Integer, primary_key=True)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    email_enabled = Column(Boolean, default=False)
+    send_hour     = Column(Integer, default=8)    # heure UTC d'envoi (0-23)
+
+    user = relationship("User", back_populates="notification_prefs")

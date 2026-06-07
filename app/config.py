@@ -18,6 +18,19 @@ class Settings(BaseSettings):
 
     graphhopper_api_key: str
 
+    # ML — chemin absolu vers cronos-ml/ (optionnel, auto-détecté sinon)
+    cronos_ml_dir: str = ""
+
+    # Email notifications
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "CRONOS Peakflow <noreply@peakflow.ai>"
+
+    # Heure UTC d'envoi des notifications (0-23)
+    notif_hour: int = 7
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

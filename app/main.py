@@ -16,12 +16,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db import AsyncSessionLocal, init_db
 from app.routers import data, users, polar, withings, profile
+from app.routers import feedback as feedback_router
+from app.routers import notifications as notifications_router
 from app.services.collect import collect_all_users_yesterday
 from app.logging_config import setup_logging
 setup_logging()
 
 from app.routers.session_history_router import router as session_history_router
-from app.api import routes as routes_router  
+from app.api import routes as routes_router
 from app.api import pacing as pacing_router
 
 log = logging.getLogger(__name__)
@@ -38,17 +40,53 @@ async def _daily_job():
     """
     log.info("=== CRON START ===")
     async with AsyncSessionLocal() as db:
-        # Re-login préventif avant la collecte
         try:
             from app.services.garmin_auth import check_and_refresh_tokens
             await check_and_refresh_tokens(db)
         except Exception as e:
             log.error(f"Erreur vérification tokens : {e}")
- 
-        # Collecte normale
+
         from app.services.collect import collect_all_users_yesterday
         await collect_all_users_yesterday(db)
     log.info("=== CRON END ===")
+
+
+async def _notification_job():
+    """
+    Cron job d'emails — tourne toutes les heures, envoie selon la préférence de chaque user.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from app.db import User, NotificationPrefs
+    from app.services.email_service import send_daily_recommendation
+
+    current_hour = datetime.now(timezone.utc).hour
+    log.info(f"[NOTIF] Vérification des notifications pour l'heure UTC {current_hour}")
+
+    async with AsyncSessionLocal() as db:
+        prefs_list = (await db.execute(
+            select(NotificationPrefs, User)
+            .join(User, NotificationPrefs.user_id == User.id)
+            .where(NotificationPrefs.email_enabled == True)
+            .where(NotificationPrefs.send_hour == current_hour)
+        )).all()
+
+        for prefs, user in prefs_list:
+            if not user.email:
+                continue
+            try:
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    r = await client.get(
+                        f"http://localhost:{settings.port if hasattr(settings, 'port') else 8001}"
+                        f"/users/{user.name}/recommend",
+                        timeout=20,
+                    )
+                payload = r.json()
+                sent = send_daily_recommendation(user.email, user.name, payload)
+                log.info(f"[NOTIF] Email {'envoyé' if sent else 'échoué'} → {user.email}")
+            except Exception as e:
+                log.error(f"[NOTIF] Erreur pour {user.name}: {e}")
 
 
 @asynccontextmanager
@@ -66,8 +104,14 @@ async def lifespan(app: FastAPI):
         id="daily_collect",
         replace_existing=True,
     )
+    scheduler.add_job(
+        _notification_job,
+        CronTrigger(minute=0, timezone="UTC"),   # toutes les heures, à H:00
+        id="hourly_notifications",
+        replace_existing=True,
+    )
     scheduler.start()
-    log.info(f"✓ Cron démarré — collecte à {settings.collect_hour:02d}:{settings.collect_minute:02d} UTC")
+    log.info(f"✓ Cron démarré — collecte à {settings.collect_hour:02d}:{settings.collect_minute:02d} UTC | notifications toutes les heures")
 
     yield
 
@@ -84,6 +128,8 @@ app.include_router(profile.router)
 app.include_router(session_history_router)
 app.include_router(routes_router.router)
 app.include_router(pacing_router.router)
+app.include_router(feedback_router.router)
+app.include_router(notifications_router.router)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
