@@ -9,14 +9,15 @@ class Settings(BaseSettings):
     # Polar OAuth
     polar_client_id: str = ""
     polar_client_secret: str = ""
-    polar_redirect_uri: str = "https://web-production-3668.up.railway.app/auth/polar/callback"
+    polar_redirect_uri: str = ""
 
     # Withings OAuth
     withings_client_id: str = ""
     withings_client_secret: str = ""
-    withings_redirect_uri: str = "https://web-production-3668.up.railway.app/auth/withings/callback"
+    withings_redirect_uri: str = ""
 
     graphhopper_api_key: str
+    garmin_encryption_key: str = ""
 
     # ML — chemin absolu vers cronos-ml/ (optionnel, auto-détecté sinon)
     cronos_ml_dir: str = ""

@@ -27,7 +27,8 @@ log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 
 def _get_fernet() -> Fernet | None:
-    key = os.environ.get("GARMIN_ENCRYPTION_KEY")
+    from app.config import settings
+    key = settings.garmin_encryption_key or os.environ.get("GARMIN_ENCRYPTION_KEY", "")
     if not key:
         log.warning("GARMIN_ENCRYPTION_KEY non défini — stockage credentials désactivé")
         return None

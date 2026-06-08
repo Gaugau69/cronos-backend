@@ -206,6 +206,42 @@ def _days_to_next_race_sync(races: list) -> int | None:
         return None
 
 
+# Sessions nécessitant du dénivelé (trail, côtes)
+_NEEDS_HILLS_IDS = {14, 15, 16, 17, 18, 30, 31}
+
+
+def _compute_terrain_profile(activities: list) -> dict:
+    """
+    Analyse les activités pour caractériser le terrain habituel de l'athlète.
+    Retourne : typical_distance_km, elev_per_km, terrain ('flat'|'moderate'|'hilly').
+    """
+    import numpy as np
+    distances = [float(a.distance_km) for a in activities if a.distance_km and a.distance_km > 0]
+    elevs_per_km = [
+        float(a.elevation_gain_m) / float(a.distance_km)
+        for a in activities
+        if a.elevation_gain_m and a.distance_km and a.distance_km > 0
+    ]
+
+    typical_dist = float(np.median(distances)) if distances else None
+    elev_per_km  = float(np.median(elevs_per_km)) if elevs_per_km else None
+
+    terrain = "unknown"
+    if elev_per_km is not None:
+        if elev_per_km >= 20:
+            terrain = "hilly"
+        elif elev_per_km >= 8:
+            terrain = "moderate"
+        else:
+            terrain = "flat"
+
+    return {
+        "typical_distance_km": round(typical_dist, 1) if typical_dist else None,
+        "elev_per_km":         round(elev_per_km, 1)  if elev_per_km  else None,
+        "terrain":             terrain,
+    }
+
+
 def _compute_training_load(activities: list) -> dict:
     """
     Charge d'entraînement sur 7j / 42j.
@@ -252,51 +288,73 @@ def _compute_training_load(activities: list) -> dict:
 
 def _compute_recovery(metrics: list, load_info: Optional[dict] = None) -> tuple[float, dict]:
     """
-    Recovery score 0-1 basé sur HRV (50%), sommeil (30%), body battery (20%).
-    Le TSB de la charge 7j affine légèrement le score final.
+    Recovery score 0-1.
+    Signaux prioritaires : HRV (50%), sommeil (30%), body battery (20%).
+    Fallback sans HRV/sommeil : FC repos vs baseline (40%) + charge (40%) + body battery (20%).
     """
     import numpy as np
     if not metrics:
         return 0.5, {}
     latest = metrics[0]
-    hrv_values = [float(m.hrv_last_night) for m in metrics if m.hrv_last_night]
-    hrv_mean   = float(np.median(hrv_values)) if hrv_values else None
-    hrv_today  = float(latest.hrv_last_night) if latest.hrv_last_night else None
-    sleep_today= float(latest.sleep_score)    if latest.sleep_score    else None
-    bb_today   = float(latest.body_battery_charged) if latest.body_battery_charged else None
 
-    recovery = 0.5
+    hrv_values  = [float(m.hrv_last_night) for m in metrics if m.hrv_last_night]
+    hrv_mean    = float(np.median(hrv_values)) if hrv_values else None
+    hrv_today   = float(latest.hrv_last_night) if latest.hrv_last_night else None
+    sleep_today = float(latest.sleep_score)    if latest.sleep_score    else None
+    bb_today    = float(latest.body_battery_charged) if latest.body_battery_charged else None
+
+    # FC repos : baseline = médiane 14 jours, déviation → fatigue
+    hr_rest_values = [float(m.resting_hr) for m in metrics if m.resting_hr]
+    hr_rest_today  = float(latest.resting_hr) if latest.resting_hr else None
+    hr_rest_median = float(np.median(hr_rest_values)) if len(hr_rest_values) >= 3 else None
+
+    recovery  = 0.5
     n_signals = 0
-    if hrv_today and hrv_mean and hrv_mean > 0:
+
+    has_hrv   = hrv_today and hrv_mean and hrv_mean > 0
+    has_sleep = bool(sleep_today)
+
+    if has_hrv:
         hrv_score = min(hrv_today / hrv_mean, 1.5) / 1.5
         recovery += (hrv_score - 0.5) * 0.5
         n_signals += 1
-    if sleep_today:
+    if has_sleep:
         recovery += (sleep_today / 100 - 0.5) * 0.3
         n_signals += 1
     if bb_today:
-        recovery += (bb_today / 100 - 0.5) * 0.2
+        recovery += (bb_today / 100 - 0.5) * (0.2 if (has_hrv or has_sleep) else 0.35)
         n_signals += 1
 
-    # Ajustement TSB : surcharge → -5%, fraîcheur excessive → léger boost
+    # Fallback FC repos quand HRV absent : +1bpm au-dessus baseline → -3% récupération
+    if not has_hrv and hr_rest_today and hr_rest_median:
+        delta_bpm = hr_rest_today - hr_rest_median
+        # +5bpm → -15%, -5bpm → +15% (plafonné à ±0.20)
+        hr_adj = max(-0.20, min(0.20, -delta_bpm * 0.03))
+        recovery += hr_adj * (0.40 if not has_sleep else 0.20)
+        n_signals += 1
+
+    # Charge d'entraînement — poids renforcé si peu de signaux bio
     if load_info:
         tsb = load_info.get("tsb", 0)
-        if tsb < -20:
-            recovery = max(0.05, recovery - 0.08)
+        load_weight = 0.30 if n_signals == 0 else (0.15 if n_signals == 1 else 0.06)
+        if tsb < -25:
+            recovery = max(0.05, recovery - load_weight * 1.0)
         elif tsb < -10:
-            recovery = max(0.05, recovery - 0.04)
+            recovery = max(0.05, recovery - load_weight * 0.5)
         elif tsb > 15:
-            recovery = min(0.95, recovery + 0.03)
+            recovery = min(0.95, recovery + load_weight * 0.3)
         if load_info.get("weekly_sessions", 0) == 0:
             recovery = min(0.95, recovery + 0.05)
         n_signals += 1
 
     recovery = max(0.05, min(0.95, recovery))
     return recovery, {
-        "hrv_today":    round(hrv_today, 1) if hrv_today else None,
-        "hrv_mean":     round(hrv_mean, 1)  if hrv_mean  else None,
-        "sleep_score":  int(sleep_today)    if sleep_today else None,
-        "body_battery": int(bb_today)       if bb_today  else None,
+        "hrv_today":    round(hrv_today, 1)    if hrv_today    else None,
+        "hrv_mean":     round(hrv_mean, 1)     if hrv_mean     else None,
+        "sleep_score":  int(sleep_today)       if sleep_today  else None,
+        "body_battery": int(bb_today)          if bb_today     else None,
+        "hr_rest_today":int(hr_rest_today)     if hr_rest_today     else None,
+        "hr_rest_median":int(hr_rest_median)   if hr_rest_median    else None,
         "n_signals":    n_signals,
     }
 
@@ -310,6 +368,7 @@ def _rank_sessions(
     target_dist: str | None = None,
     feedback_adjustments: dict | None = None,
     recent_session_ids: list[int] | None = None,
+    terrain_profile: dict | None = None,
 ) -> list[dict]:
 
     # J-1 ou J0 : activation uniquement
@@ -403,21 +462,54 @@ def _rank_sessions(
         if recent_session_ids and s["id"] in recent_session_ids:
             score = max(0.03, score * 0.62)
 
+        # ── Terrain : adapte les séances au profil réel de l'athlète ──
+        if terrain_profile:
+            terrain = terrain_profile.get("terrain", "unknown")
+            typical_dist = terrain_profile.get("typical_distance_km")
+
+            # Séances nécessitant du dénivelé : bonus si hilly, malus si flat
+            if s["id"] in _NEEDS_HILLS_IDS:
+                if terrain == "flat":
+                    score *= 0.45   # peu réaliste pour cet athlète
+                elif terrain == "moderate":
+                    score = min(0.97, score * 1.05)
+                elif terrain == "hilly":
+                    score = min(0.97, score * 1.20)
+
+            # Distance proposée >> distance typique → légère pénalité
+            if typical_dist and s["distance_km"] > 0:
+                ratio = s["distance_km"] / typical_dist
+                if ratio > 2.5:
+                    score *= 0.80
+                elif ratio > 1.8:
+                    score *= 0.90
+
         scored.append((max(0.03, min(0.97, score)), s))
 
     scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[:top_k]
 
-    # Calibration affichage : si le top-1 brut < 0.80, on booste proportionnellement
-    # pour que la meilleure séance affiche toujours ≥ 80/100.
-    # Les écarts relatifs entre séances sont préservés.
-    if scored:
-        max_raw = scored[0][0]
+    # Calibration sur le top_k uniquement :
+    # 1. Top-1 toujours ≥ 80/100
+    # 2. Écart minimum de 20 pts entre top-1 et dernière session (lisibilité)
+    if top:
+        max_raw = top[0][0]
         if max_raw < 0.80:
             boost = 0.80 / max_raw
-            scored = [(min(0.97, sc * boost), s) for sc, s in scored]
+            top = [(min(0.97, sc * boost), s) for sc, s in top]
+
+        if len(top) >= 2:
+            top_sc = top[0][0]
+            bot_sc = top[-1][0]
+            if top_sc - bot_sc < 0.20:
+                n = len(top)
+                top = [
+                    (max(0.03, top_sc - 0.20 * i / (n - 1)), s)
+                    for i, (_, s) in enumerate(top)
+                ]
 
     results = []
-    for i, (sc, s) in enumerate(scored[:top_k]):
+    for i, (sc, s) in enumerate(top):
         item = {**s, "rank": i+1, "score": round(sc * 100, 1)}
         if days_to_race is not None and days_to_race <= 7:
             item["note"] = f"J-{days_to_race} avant ta course — semaine de récupération"
@@ -483,6 +575,9 @@ async def recommend_sessions(
 
     # ── Charge 7j glissants ──────────────────────────────────────────────────
     load_info = _compute_training_load(activities_42)
+
+    # ── Profil terrain (distance typique + dénivelé habituel) ────────────────
+    terrain_profile = _compute_terrain_profile(list(activities_42))
 
     # ── Recovery score (avec charge) ─────────────────────────────────────────
     recovery, signals = _compute_recovery(metrics, load_info)
@@ -573,6 +668,7 @@ async def recommend_sessions(
             recovery, user_level, days_to_race, top_k, goal, target_dist,
             feedback_adjustments=feedback_adjustments,
             recent_session_ids=recent_session_ids,
+            terrain_profile=terrain_profile,
         )
 
     # ── Assemblage réponse ────────────────────────────────────────────────────
@@ -619,6 +715,7 @@ async def recommend_sessions(
         "recovery":        recovery_out,
         "athlete":         athlete_out,
         "load":            load_info,
+        "terrain":         terrain_profile,
         "recommendations": recommendations,
     }
 
@@ -746,12 +843,13 @@ async def get_heatmap(
     if sync:
         new_tracks = await fetch_and_store_tracks(db, user, days=days)
 
-    points = await get_heatmap_points(db, user, days=days)
+    points, tracks = await get_heatmap_points(db, user, days=days)
     return {
         "user":       name,
         "n_points":   len(points),
         "new_tracks": new_tracks,
         "points":     points,
+        "tracks":     tracks,
     }
 
 

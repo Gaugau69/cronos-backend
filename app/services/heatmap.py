@@ -33,9 +33,9 @@ def _parse_gpx_coordinates(gpx_xml: str) -> list[list[float]]:
             lon = trkpt.get("lon")
             if lat and lon:
                 coords.append([round(float(lat), 5), round(float(lon), 5)])
-        # Échantillonnage : max 200 points pour limiter la taille stockée
-        if len(coords) > 200:
-            step = len(coords) // 200
+        # Échantillonnage : max 500 points par parcours
+        if len(coords) > 500:
+            step = len(coords) // 500
             coords = coords[::step]
         return coords
     except Exception as e:
@@ -61,10 +61,11 @@ async def fetch_and_store_tracks(
         select(Activity)
         .where(Activity.user_id == user.id)
         .where(Activity.date >= since)
-        .where(Activity.activity_type.in_(["running", "trail_running", "treadmill_running"]))
+        .where(Activity.activity_type.ilike("%running%"))
         .order_by(Activity.date.desc())
     )).scalars().all()
 
+    logger.info(f"[{user.name}] {len(activities)} activités running trouvées depuis {since}")
     if not activities:
         return 0
 
@@ -75,25 +76,34 @@ async def fetch_and_store_tracks(
             .where(ActivityTrack.user_id == user.id)
         )).all()
     )
+    logger.info(f"[{user.name}] {len(existing_ids)} tracks déjà en DB, {len(activities)} activités")
 
     missing = [a for a in activities if a.activity_id not in existing_ids]
+    logger.info(f"[{user.name}] {len(missing)} tracks manquants à télécharger")
     if not missing:
         return 0
 
-    # Connexion Garmin
-    try:
-        import garth
-        client = garth.Client()
-        client.loads(user.token_json)
-    except Exception as e:
-        logger.error(f"Garmin auth failed for {user.name}: {e}")
+    # Connexion Garmin — force un re-login frais si credentials disponibles
+    from app.services.garmin_auth import get_api, _relogin
+    from garminconnect import Garmin
+
+    logger.info(f"[{user.name}] garmin_email={bool(user.garmin_email)} password_enc={bool(user.garmin_password_enc)}")
+    api = None
+    if user.garmin_email and user.garmin_password_enc:
+        api = await _relogin(db, user)
+        logger.info(f"[{user.name}] _relogin → api={'OK' if api else 'None'}")
+    if api is None:
+        api = await get_api(db, user, auto_relogin=False)
+        logger.info(f"[{user.name}] get_api → api={'OK' if api else 'None'}")
+    if api is None:
+        logger.error(f"Garmin auth failed for {user.name}")
         return 0
 
     stored = 0
     for act in missing[:20]:   # max 20 par appel pour éviter le rate-limiting
         try:
-            gpx_data = client.download(
-                f"/proxy/download-service/files/activity/{act.activity_id}"
+            gpx_data = api.download_activity(
+                act.activity_id, dl_fmt=Garmin.ActivityDownloadFormat.GPX
             )
             if isinstance(gpx_data, bytes):
                 gpx_str = gpx_data.decode("utf-8", errors="replace")
@@ -126,13 +136,13 @@ async def get_heatmap_points(
     db: AsyncSession,
     user: User,
     days: int = 90,
-) -> list[list[float]]:
+) -> tuple[list[list[float]], list[list[list[float]]]]:
     """
-    Retourne tous les points [lat, lng] des tracks récents pour la heatmap.
+    Retourne (points_flat, tracks) où tracks est la liste des parcours séparés.
+    points_flat conservé pour compatibilité ; tracks permet de tracer des polylines précises.
     """
     since = date.today() - timedelta(days=days)
 
-    # Activités dans la fenêtre
     act_ids = set(
         row[0] for row in (await db.execute(
             select(Activity.activity_id)
@@ -142,19 +152,23 @@ async def get_heatmap_points(
     )
 
     if not act_ids:
-        return []
+        return [], []
 
-    tracks = (await db.execute(
+    db_tracks = (await db.execute(
         select(ActivityTrack)
         .where(ActivityTrack.user_id == user.id)
         .where(ActivityTrack.activity_id.in_(act_ids))
     )).scalars().all()
 
     all_points: list[list[float]] = []
-    for t in tracks:
+    all_tracks: list[list[list[float]]] = []
+    for t in db_tracks:
         try:
-            all_points.extend(json.loads(t.coordinates_json))
+            coords = json.loads(t.coordinates_json)
+            if coords:
+                all_points.extend(coords)
+                all_tracks.append(coords)
         except Exception:
             pass
 
-    return all_points
+    return all_points, all_tracks

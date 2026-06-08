@@ -239,6 +239,12 @@ def ml_recommend(
     if not _load_models():
         return None
 
+    # Sans HRV (feature principale), le modèle ne peut pas différencier → heuristique
+    hrv_values = [getattr(m, "hrv_last_night", None) for m in metrics if getattr(m, "hrv_last_night", None)]
+    if not hrv_values:
+        logger.debug("Pas de données HRV — ML ignoré, bascule heuristique")
+        return None
+
     try:
         import torch
 
