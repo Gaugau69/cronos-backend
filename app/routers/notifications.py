@@ -91,7 +91,11 @@ async def send_test_notification(
     import httpx
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.get(f"http://localhost:8001/users/{name}/recommend", timeout=15)
+            r = await client.get(
+                f"http://localhost:8001/users/{name}/recommend",
+                headers={"x-cronos-email": user.email},
+                timeout=15,
+            )
         payload = r.json()
     except Exception:
         raise HTTPException(503, "Impossible de récupérer les recommandations.")
