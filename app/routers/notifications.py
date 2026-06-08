@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import NotificationPrefs, User, get_db
+from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(tags=["notifications"])
 
@@ -30,8 +31,12 @@ class NotifPrefsIn(BaseModel):
 
 
 @router.get("/users/{name}/notifications")
-async def get_notifications(name: str, db: AsyncSession = Depends(get_db)):
-    user = await _get_user(db, name)
+async def get_notifications(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    user = await require_owner(name, db, caller_email)
     prefs = (await db.execute(
         select(NotificationPrefs).where(NotificationPrefs.user_id == user.id)
     )).scalar_one_or_none()
@@ -48,8 +53,9 @@ async def update_notifications(
     name: str,
     payload: NotifPrefsIn,
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
-    user  = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     prefs = (await db.execute(
         select(NotificationPrefs).where(NotificationPrefs.user_id == user.id)
     )).scalar_one_or_none()
@@ -69,11 +75,15 @@ async def update_notifications(
 
 
 @router.post("/users/{name}/notifications/test")
-async def send_test_notification(name: str, db: AsyncSession = Depends(get_db)):
+async def send_test_notification(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
     """Envoie un email de test avec les recommandations actuelles."""
     from app.services.email_service import send_daily_recommendation
 
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     if not user.email:
         raise HTTPException(400, "Pas d'email enregistré pour cet utilisateur.")
 

@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionFeedback, User, get_db
+from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(tags=["feedback"])
 
@@ -59,8 +60,12 @@ class FeedbackOut(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/session-feedback", response_model=FeedbackOut)
-async def submit_feedback(payload: FeedbackCreate, db: AsyncSession = Depends(get_db)):
-    user = await _get_user(db, payload.name)
+async def submit_feedback(
+    payload: FeedbackCreate,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    user = await require_owner(payload.name, db, caller_email)
 
     entry = SessionFeedback(
         user_id      = user.id,
@@ -80,8 +85,9 @@ async def get_feedback(
     name: str,
     days: int = 30,
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     since = date.today() - timedelta(days=days)
     rows = (await db.execute(
         select(SessionFeedback)
@@ -93,9 +99,13 @@ async def get_feedback(
 
 
 @router.get("/users/{name}/feedback/stats")
-async def get_feedback_stats(name: str, db: AsyncSession = Depends(get_db)):
+async def get_feedback_stats(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
     """Statistiques agrégées par session — pour ajuster l'algorithme."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     rows = (await db.execute(
         select(SessionFeedback)
         .where(SessionFeedback.user_id == user.id)

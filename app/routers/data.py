@@ -6,7 +6,7 @@ import json
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from app.db import (
 from app.schemas import ActivityOut, CollectRequest, DailyMetricOut
 from app.services.collect import collect_user_range
 from app.services.ml_recommender import ml_recommend
+from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(tags=["data"])
 
@@ -398,13 +399,22 @@ def _rank_sessions(
         if feedback_adjustments and s["id"] in feedback_adjustments:
             score = max(0.03, min(0.97, score + feedback_adjustments[s["id"]]))
 
-        # Anti-répétition : pénalise les séances faites dans les 3 derniers jours
+        # Anti-répétition : ×0.62 (moins brutal que ×0.45)
         if recent_session_ids and s["id"] in recent_session_ids:
-            score = max(0.03, score * 0.45)
+            score = max(0.03, score * 0.62)
 
         scored.append((max(0.03, min(0.97, score)), s))
 
     scored.sort(key=lambda x: x[0], reverse=True)
+
+    # Calibration affichage : si le top-1 brut < 0.80, on booste proportionnellement
+    # pour que la meilleure séance affiche toujours ≥ 80/100.
+    # Les écarts relatifs entre séances sont préservés.
+    if scored:
+        max_raw = scored[0][0]
+        if max_raw < 0.80:
+            boost = 0.80 / max_raw
+            scored = [(min(0.97, sc * boost), s) for sc, s in scored]
 
     results = []
     for i, (sc, s) in enumerate(scored[:top_k]):
@@ -425,10 +435,11 @@ async def recommend_sessions(
     top_k: int = Query(5, ge=1, le=10),
     refresh: bool = Query(False, description="Forcer le recalcul même si le cache existe"),
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
     import numpy as np
 
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
 
     # ── Cache du jour ────────────────────────────────────────────────────────
     if not refresh:
@@ -542,14 +553,18 @@ async def recommend_sessions(
     used_ml = ml_results is not None
 
     if ml_results:
-        # Applique les ajustements feedback + anti-répétition sur les scores ML
         for r in ml_results:
             adj = feedback_adjustments.get(r["id"], 0.0)
             score = r["score"] + adj * 100
             if r["id"] in recent_session_ids:
-                score *= 0.45
+                score *= 0.62
             r["score"] = round(max(1.0, min(99.0, score)), 1)
         ml_results.sort(key=lambda r: r["score"], reverse=True)
+        # Même calibration affichage que l'heuristique
+        if ml_results and ml_results[0]["score"] < 80:
+            boost = 80 / ml_results[0]["score"]
+            for r in ml_results:
+                r["score"] = round(min(97, r["score"] * boost), 1)
         for i, r in enumerate(ml_results):
             r["rank"] = i + 1
         recommendations = ml_results
@@ -613,8 +628,12 @@ async def recommend_sessions(
 # ─────────────────────────────────────────────────────────────
 
 @router.get("/users/{name}/recovery-score")
-async def get_recovery_score(name: str, db: AsyncSession = Depends(get_db)):
-    user = await _get_user(db, name)
+async def get_recovery_score(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    user = await require_owner(name, db, caller_email)
     since = date.today() - timedelta(days=15)
     metrics = (await db.execute(
         select(DailyMetric)
@@ -650,8 +669,9 @@ async def get_trends(
     name: str,
     days: int = Query(30, ge=2, le=90),
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     since = date.today() - timedelta(days=days)
     metrics = (await db.execute(
         select(DailyMetric)
@@ -713,13 +733,14 @@ async def get_heatmap(
     days: int = Query(90, ge=7, le=365),
     sync: bool = Query(False, description="Télécharger les tracks manquants depuis Garmin"),
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
     """
     Retourne les points GPS des activités récentes pour la heatmap Leaflet.
     Si sync=true, télécharge d'abord les tracks manquants depuis Garmin.
     """
     from app.services.heatmap import fetch_and_store_tracks, get_heatmap_points
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
 
     new_tracks = 0
     if sync:
@@ -732,3 +753,50 @@ async def get_heatmap(
         "new_tracks": new_tracks,
         "points":     points,
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# LOAD HISTORY (graphe ATL/CTL/TSB)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/users/{name}/load-history")
+async def get_load_history(
+    name: str,
+    days: int = Query(56, ge=14, le=90),
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    """
+    Retourne l'évolution ATL/CTL/TSB jour par jour sur `days` jours.
+    Utilisé pour le graphe de charge dans le frontend.
+    """
+    user = await require_owner(name, db, caller_email)
+
+    # On charge les activités avec assez de recul pour calculer le CTL (42j)
+    activities = (await db.execute(
+        select(Activity)
+        .where(Activity.user_id == user.id)
+        .where(Activity.date >= date.today() - timedelta(days=days + 42))
+        .where(Activity.activity_type.in_(["running", "trail_running", "treadmill_running"]))
+    )).scalars().all()
+
+    # Charge par jour : duration_min × avg_hr / 100
+    daily_load: dict[date, float] = {}
+    for a in activities:
+        load = float(a.duration_min or 0) * float(a.avg_hr or 0) / 100
+        daily_load[a.date] = daily_load.get(a.date, 0.0) + load
+
+    today = date.today()
+    history = []
+    for d in range(days - 1, -1, -1):
+        target = today - timedelta(days=d)
+        atl = sum(daily_load.get(target - timedelta(days=j), 0.0) for j in range(7))  / 7
+        ctl = sum(daily_load.get(target - timedelta(days=j), 0.0) for j in range(42)) / 42
+        history.append({
+            "date": target.isoformat(),
+            "atl":  round(atl, 1),
+            "ctl":  round(ctl, 1),
+            "tsb":  round(ctl - atl, 1),
+        })
+
+    return {"user": name, "history": history}

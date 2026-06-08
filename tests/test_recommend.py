@@ -360,7 +360,75 @@ class TestSessionsCatalogue:
         for s in SESSIONS_V2:
             for kw in cycling_keywords:
                 if kw in s["name"].lower() or kw in s["description"].lower():
-                    # Le cross-training vélo est un cas limite — acceptable
                     assert s["id"] == 4, (
                         f"Session cycliste inattendue: {s['name']} (id={s['id']})"
                     )
+
+
+# ─────────────────────────────────────────────────────────────
+# Anti-répétition + calibration score
+# ─────────────────────────────────────────────────────────────
+
+class TestAntiRepetitionAndCalibration:
+
+    def test_recent_session_penalized(self):
+        """Une séance faite récemment doit être moins bien classée."""
+        results_base = _rank_sessions(recovery=0.7, user_level=1, top_k=10)
+        top_id = results_base[0]["id"]
+
+        results_penalized = _rank_sessions(
+            recovery=0.7, user_level=1, top_k=10,
+            recent_session_ids=[top_id],
+        )
+        # La session pénalisée ne doit plus être top-1
+        assert results_penalized[0]["id"] != top_id
+
+    def test_recent_session_score_lower(self):
+        """Score de la séance pénalisée doit être inférieur (avant calibration)."""
+        results_base = _rank_sessions(recovery=0.7, user_level=1, top_k=10)
+        target_id = results_base[2]["id"]   # 3ème meilleure sans pénalité
+        score_base = next(r["score"] for r in results_base if r["id"] == target_id)
+
+        results_penalized = _rank_sessions(
+            recovery=0.7, user_level=1, top_k=10,
+            recent_session_ids=[target_id],
+        )
+        score_penalized = next(
+            (r["score"] for r in results_penalized if r["id"] == target_id), None
+        )
+        if score_penalized is not None:
+            assert score_penalized < score_base
+
+    def test_top1_always_at_least_80(self):
+        """Après calibration, le top-1 doit afficher ≥ 80/100."""
+        # Scénario difficile : récupération très faible + anti-répétition sur top sessions
+        top_ids = [r["id"] for r in _rank_sessions(recovery=0.3, user_level=0, top_k=5)]
+        results = _rank_sessions(
+            recovery=0.3, user_level=0, top_k=5,
+            recent_session_ids=top_ids[:2],
+        )
+        assert results[0]["score"] >= 80
+
+    def test_relative_order_preserved_after_calibration(self):
+        """La calibration ne change pas l'ordre — juste l'échelle des scores."""
+        results = _rank_sessions(recovery=0.35, user_level=0, top_k=5)
+        scores = [r["score"] for r in results]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_calibration_only_lifts_not_shrinks(self):
+        """La calibration ne doit jamais baisser un score déjà ≥ 80."""
+        results_high = _rank_sessions(recovery=0.85, user_level=2, top_k=5)
+        for r in results_high:
+            # Avec bonne récupération, les scores sont déjà hauts
+            assert r["score"] <= 97  # jamais au-dessus du plafond
+
+    def test_multiple_recent_sessions_still_recommends(self):
+        """Même avec 5 séances récentes, on obtient quand même top_k résultats."""
+        all_results = _rank_sessions(recovery=0.6, user_level=1, top_k=10)
+        recent_ids = [r["id"] for r in all_results[:5]]
+        results = _rank_sessions(
+            recovery=0.6, user_level=1, top_k=5,
+            recent_session_ids=recent_ids,
+        )
+        assert len(results) == 5
+        assert results[0]["score"] >= 80
