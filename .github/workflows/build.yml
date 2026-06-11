@@ -6,10 +6,9 @@ on:
     paths:
       - 'desktop/**'
       - 'requirements.txt'
-  workflow_dispatch:  # Permet de lancer manuellement
+  workflow_dispatch:
 
 jobs:
-  # ── Build Windows .exe ──
   build-windows:
     runs-on: windows-latest
     steps:
@@ -21,20 +20,17 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install pyinstaller garminconnect requests
+        run: pip install pyinstaller garminconnect requests
 
       - name: Build .exe
-        run: |
-          pyinstaller --onefile --windowed --name "CRONOS" desktop/main.py
+        run: pyinstaller --onefile --windowed --name "CRONOS" desktop/main.py
 
-      - name: Upload .exe
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: CRONOS-Windows
           path: dist/CRONOS.exe
 
-  # ── Build Mac .dmg ──
   build-mac:
     runs-on: macos-latest
     steps:
@@ -46,12 +42,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install pyinstaller garminconnect requests
+        run: pip install pyinstaller garminconnect requests
 
       - name: Build .app
-        run: |
-          pyinstaller --onefile --windowed --name "CRONOS" desktop/main.py
+        run: pyinstaller --onefile --windowed --name "CRONOS" desktop/main.py
 
       - name: Create .dmg
         run: |
@@ -65,13 +59,12 @@ jobs:
             "dist/CRONOS.dmg" \
             "dist/CRONOS.app"
 
-      - name: Upload .dmg
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: CRONOS-Mac
           path: dist/CRONOS.dmg
 
-  # ── Créer une Release GitHub automatiquement ──
   release:
     needs: [build-windows, build-mac]
     runs-on: ubuntu-latest
@@ -92,11 +85,19 @@ jobs:
           name: CRONOS-Mac
           path: dist/
 
+      - name: Delete existing latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: CRONOS Desktop App
+          make_latest: true
           files: |
             dist/CRONOS.exe
             dist/CRONOS.dmg
