@@ -375,3 +375,45 @@ async def collect_all_users_yesterday(db: AsyncSession):
 
         except Exception as e:
             log.error(f"[{user.name}] Erreur collecte: {e}")
+
+
+async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
+    """
+    Vérifie les `lookback_days` derniers jours pour chaque user et comble les jours manquants.
+    Appelé après collect_all_users_yesterday pour rattraper les jours où le cron aurait échoué.
+    """
+    today = date.today()
+    users = (await db.execute(select(User))).scalars().all()
+    log.info(f"Backfill: vérification des {lookback_days} derniers jours pour {len(users)} user(s)")
+
+    for user in users:
+        try:
+            # Récupère les dates déjà présentes en base pour ce user
+            start_window = today - timedelta(days=lookback_days)
+            existing = (await db.execute(
+                select(DailyMetric.date)
+                .where(DailyMetric.user_id == user.id)
+                .where(DailyMetric.date >= start_window)
+                .where(DailyMetric.date < today)
+            )).scalars().all()
+
+            existing_dates = set(existing)
+            missing = [
+                today - timedelta(days=i)
+                for i in range(1, lookback_days + 1)
+                if (today - timedelta(days=i)) not in existing_dates
+            ]
+
+            if not missing:
+                continue
+
+            log.info(f"[{user.name}] {len(missing)} jour(s) manquant(s) — backfill en cours")
+            for day in missing:
+                try:
+                    summary = await collect_user_range(db, user, day, day)
+                    log.info(f"[{user.name}] backfill {day}: {summary}")
+                except Exception as e:
+                    log.error(f"[{user.name}] backfill {day} échoué: {e}")
+
+        except Exception as e:
+            log.error(f"[{user.name}] Erreur backfill: {e}")
