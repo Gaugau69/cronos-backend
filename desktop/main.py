@@ -347,25 +347,12 @@ class PeakflowApp(tk.Tk):
     def _connect_garmin(self, name: str, email: str, pwd: str):
         try:
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
-            
-            # Essai sans return_on_mfa d'abord
-            try:
-                api = Garmin(email, pwd)
-                api.login()
-                # Login réussi sans 2FA
-                self._send_token(api, name, email)
-                return
-            except Exception as e:
-                if "mfa" not in str(e).lower() and "verification" not in str(e).lower():
-                    raise e
-                # 2FA requise — on réessaie avec return_on_mfa
-            
+
             api = Garmin(email, pwd, return_on_mfa=True)
             result = api.login()
             if result and isinstance(result, tuple):
-                client_state, _ = result
+                # 2FA requise — un seul code envoyé
                 self._api = api
-                self._client_state = client_state
                 self._name = name
                 self._email = email
                 self.after(0, self._show_mfa_form)
