@@ -564,7 +564,13 @@ async def recommend_sessions(
     METRICS_NEEDED    = 14
     ACTIVITIES_NEEDED = 3
 
-    metrics_days = len({m.date for m in metrics})
+    metrics_days = len({
+        m.date for m in metrics
+        if any([
+            m.resting_hr, m.sleep_duration_min, m.hrv_last_night,
+            m.total_steps, m.avg_stress, m.body_battery_charged,
+        ])
+    })
 
     activities_42 = (await db.execute(
         select(Activity)
