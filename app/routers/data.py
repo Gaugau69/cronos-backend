@@ -533,26 +533,6 @@ async def recommend_sessions(
 
     user = await require_owner(name, db, caller_email)
 
-    # ── Cache du jour ────────────────────────────────────────────────────────
-    if not refresh:
-        cached = (await db.execute(
-            select(RecommendationsCache)
-            .where(RecommendationsCache.user_id == user.id)
-            .where(RecommendationsCache.cache_date == date.today())
-        )).scalar_one_or_none()
-
-        if cached:
-            return {
-                "user":            name,
-                "date":            date.today().isoformat(),
-                "cached":          True,
-                "computed_with_ml":cached.computed_with_ml,
-                "recovery":        json.loads(cached.recovery_json or "{}"),
-                "athlete":         json.loads(cached.athlete_json  or "{}"),
-                "load":            json.loads(cached.load_json     or "{}"),
-                "recommendations": json.loads(cached.recommendations_json),
-            }
-
     # ── Métriques 90 derniers jours ──────────────────────────────────────────
     metrics = (await db.execute(
         select(DailyMetric)
@@ -580,6 +560,8 @@ async def recommend_sessions(
         .order_by(Activity.date.desc())
     )).scalars().all()
 
+    # Vérification des données insuffisantes AVANT le cache serveur,
+    # pour ne jamais servir un cache périmé à un utilisateur sans données.
     if metrics_days < METRICS_NEEDED or len(activities_42) < ACTIVITIES_NEEDED:
         return {
             "status":             "insufficient_data",
@@ -588,6 +570,26 @@ async def recommend_sessions(
             "activities_count":   len(activities_42),
             "activities_needed":  ACTIVITIES_NEEDED,
         }
+
+    # ── Cache du jour ────────────────────────────────────────────────────────
+    if not refresh:
+        cached = (await db.execute(
+            select(RecommendationsCache)
+            .where(RecommendationsCache.user_id == user.id)
+            .where(RecommendationsCache.cache_date == date.today())
+        )).scalar_one_or_none()
+
+        if cached:
+            return {
+                "user":            name,
+                "date":            date.today().isoformat(),
+                "cached":          True,
+                "computed_with_ml":cached.computed_with_ml,
+                "recovery":        json.loads(cached.recovery_json or "{}"),
+                "athlete":         json.loads(cached.athlete_json  or "{}"),
+                "load":            json.loads(cached.load_json     or "{}"),
+                "recommendations": json.loads(cached.recommendations_json),
+            }
 
     # ── Charge 7j glissants ──────────────────────────────────────────────────
     load_info = _compute_training_load(activities_42)
