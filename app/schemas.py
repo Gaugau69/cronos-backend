@@ -17,9 +17,9 @@ class UserCreate(BaseModel):
 
 class UserOut(BaseModel):
     id: int
-    name: str
+    name: Optional[str] = None
     email: str
-    created_at: datetime
+    created_at: Optional[datetime] = None
     has_token: bool
 
     class Config:

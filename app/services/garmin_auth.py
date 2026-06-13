@@ -13,13 +13,55 @@ import base64
 
 from cryptography.fernet import Fernet
 from garminconnect import Garmin, GarminConnectAuthenticationError
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import User
 
 log = logging.getLogger(__name__)
+
+
+async def upsert_garmin_user(
+    db: AsyncSession,
+    garmin_username: str,
+    email: str,
+    token_json: str,
+    garmin_email: str | None = None,
+    garmin_password_enc: str | None = None,
+) -> User:
+    """
+    Lie les credentials Garmin à un user existant (trouvé par email)
+    ou crée un user minimal si l'email n'existe pas encore sur PeakFlow.
+    """
+    existing = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+
+    if existing:
+        # PeakFlow user found — just update Garmin fields
+        await db.execute(
+            update(User)
+            .where(User.email == email)
+            .values(
+                **{
+                    "name":               garmin_username,
+                    "token_json":         token_json,
+                    **({"garmin_email":        garmin_email}        if garmin_email        else {}),
+                    **({"garmin_password_enc": garmin_password_enc} if garmin_password_enc else {}),
+                }
+            )
+        )
+    else:
+        # No PeakFlow account yet — create a minimal row
+        new_user = User(
+            email=email,
+            name=garmin_username,
+            token_json=token_json,
+            garmin_email=garmin_email,
+            garmin_password_enc=garmin_password_enc,
+        )
+        db.add(new_user)
+
+    await db.commit()
+    return (await db.execute(select(User).where(User.email == email))).scalar_one()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -161,12 +203,9 @@ async def _relogin(db: AsyncSession, user: User) -> Garmin | None:
 
         # Met à jour le token en DB
         await db.execute(
-            pg_insert(User)
-            .values(name=user.name, email=user.email, token_json=token_json)
-            .on_conflict_do_update(
-                index_elements=["name"],
-                set_={"token_json": token_json},
-            )
+            update(User)
+            .where(User.email == user.email)
+            .values(token_json=token_json)
         )
         await db.commit()
         log.info(f"[{user.name}] ✓ Re-login réussi — nouveau token sauvegardé")
@@ -211,27 +250,14 @@ async def login_and_save_token(
             else:
                 log.warning(f"[{name}] Chiffrement impossible — credentials non stockés")
 
-        values = {
-            "name":       name,
-            "email":      email,
-            "token_json": token_json,
-        }
-        if password_enc:
-            values["garmin_email"]        = email
-            values["garmin_password_enc"] = password_enc
-
-        set_dict = {k: v for k, v in values.items() if k != "name"}
-
-        stmt = (
-            pg_insert(User)
-            .values(**values)
-            .on_conflict_do_update(
-                index_elements=["name"],
-                set_=set_dict,
-            )
+        await upsert_garmin_user(
+            db,
+            garmin_username=name,
+            email=email,
+            token_json=token_json,
+            garmin_email=email if save_credentials else None,
+            garmin_password_enc=password_enc,
         )
-        await db.execute(stmt)
-        await db.commit()
         log.info(f"✓ Token saved for {name}")
         return True
 
