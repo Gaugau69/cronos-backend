@@ -553,22 +553,22 @@ async def recommend_sessions(
                 "recommendations": json.loads(cached.recommendations_json),
             }
 
-    # ── Métriques 21 derniers jours ──────────────────────────────────────────
+    # ── Métriques 90 derniers jours ──────────────────────────────────────────
     metrics = (await db.execute(
         select(DailyMetric)
         .where(DailyMetric.user_id == user.id)
-        .where(DailyMetric.date >= date.today() - timedelta(days=21))
+        .where(DailyMetric.date >= date.today() - timedelta(days=90))
         .order_by(DailyMetric.date.desc())
     )).scalars().all()
 
     if not metrics:
         raise HTTPException(400, "Pas de données disponibles.")
 
-    # ── Activités running 42j (ATL/CTL + allure) ────────────────────────────
+    # ── Activités running 90j (ATL/CTL + allure) ────────────────────────────
     activities_42 = (await db.execute(
         select(Activity)
         .where(Activity.user_id == user.id)
-        .where(Activity.date >= date.today() - timedelta(days=42))
+        .where(Activity.date >= date.today() - timedelta(days=90))
         .where(Activity.activity_type.in_(["running", "trail_running", "treadmill_running"]))
         .order_by(Activity.date.desc())
     )).scalars().all()
