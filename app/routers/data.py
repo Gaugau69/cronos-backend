@@ -561,10 +561,11 @@ async def recommend_sessions(
         .order_by(DailyMetric.date.desc())
     )).scalars().all()
 
-    if not metrics:
-        raise HTTPException(400, "Pas de données disponibles.")
+    METRICS_NEEDED    = 14
+    ACTIVITIES_NEEDED = 3
 
-    # ── Activités running 90j (ATL/CTL + allure) ────────────────────────────
+    metrics_days = len({m.date for m in metrics})
+
     activities_42 = (await db.execute(
         select(Activity)
         .where(Activity.user_id == user.id)
@@ -572,6 +573,15 @@ async def recommend_sessions(
         .where(Activity.activity_type.in_(["running", "trail_running", "treadmill_running"]))
         .order_by(Activity.date.desc())
     )).scalars().all()
+
+    if metrics_days < METRICS_NEEDED or len(activities_42) < ACTIVITIES_NEEDED:
+        return {
+            "status":             "insufficient_data",
+            "metrics_days":       metrics_days,
+            "metrics_needed":     METRICS_NEEDED,
+            "activities_count":   len(activities_42),
+            "activities_needed":  ACTIVITIES_NEEDED,
+        }
 
     # ── Charge 7j glissants ──────────────────────────────────────────────────
     load_info = _compute_training_load(activities_42)
