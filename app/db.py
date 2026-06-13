@@ -14,8 +14,13 @@ from datetime import date
 
 # ── Connexion ──────────────────────────────────────────────────────────────
 
+def _async_db_url(url: str) -> str:
+    return url.replace("postgresql://", "postgresql+asyncpg://", 1).replace(
+        "postgres://", "postgresql+asyncpg://", 1
+    )
+
 engine = create_async_engine(
-    settings.database_url, echo=False, pool_size=5, pool_pre_ping=True
+    _async_db_url(settings.database_url), echo=False, pool_size=5, pool_pre_ping=True
 )
 
 AsyncSessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
@@ -38,7 +43,7 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
-    __tablename__ = "users"
+    __tablename__ = "cronos_users"
 
     id         = Column(Integer, primary_key=True, autoincrement=True)
     name       = Column(String(100), unique=True, nullable=False, index=True)
@@ -59,11 +64,11 @@ class User(Base):
 
 
 class DailyMetric(Base):
-    __tablename__ = "daily_metrics"
-    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_user_date"),)
+    __tablename__ = "cronos_daily_metrics"
+    __table_args__ = (UniqueConstraint("user_id", "date", name="uq_cronos_user_date"),)
 
     id      = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, index=True)
     date    = Column(Date, nullable=False, index=True)
 
     # Sommeil
@@ -113,11 +118,11 @@ class DailyMetric(Base):
 
 
 class Activity(Base):
-    __tablename__ = "activities"
-    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_user_activity"),)
+    __tablename__ = "cronos_activities"
+    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_cronos_user_activity"),)
 
     id      = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, index=True)
     date    = Column(Date, nullable=False, index=True)
 
     activity_id      = Column(BigInteger,   nullable=False)
@@ -147,10 +152,10 @@ class AthleteProfile(Base):
     Profil sportif de l'athlète — une ligne par utilisateur.
     Utilisé par CRONOS pour personnaliser les recommandations de séances.
     """
-    __tablename__ = "athlete_profiles"
+    __tablename__ = "cronos_athlete_profiles"
 
     id      = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
 
     # Niveau et type
     level           = Column(String(50),  nullable=True)   # debutant / intermediaire / avance / elite
@@ -192,10 +197,10 @@ class PlannedRace(Base):
     Calendrier des courses à venir — plusieurs par utilisateur.
     Utilisé par CRONOS pour adapter la périodisation.
     """
-    __tablename__ = "planned_races"
+    __tablename__ = "cronos_planned_races"
 
     id      = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Infos course
     race_name     = Column(String(255), nullable=False)         # ex: "Marathon de Paris"
@@ -219,10 +224,10 @@ class PlannedRace(Base):
 
 
 class SessionHistory(Base):
-    __tablename__ = "session_history"
+    __tablename__ = "cronos_session_history"
 
     id           = Column(Integer, primary_key=True)
-    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id      = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False)
     session_id   = Column(Integer, nullable=False)
     session_name = Column(String(200), nullable=False)
     category     = Column(String(50), nullable=True)
@@ -238,10 +243,10 @@ class SessionHistory(Base):
 
 class SessionFeedback(Base):
     """Retour utilisateur après une séance — 'facile', 'ok' ou 'difficile'."""
-    __tablename__ = "session_feedback"
+    __tablename__ = "cronos_session_feedback"
 
     id           = Column(Integer, primary_key=True)
-    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id      = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, index=True)
     session_id   = Column(Integer, nullable=False)
     session_name = Column(String(200), nullable=False)
     feedback     = Column(String(20), nullable=False)   # 'facile' | 'ok' | 'difficile'
@@ -257,11 +262,11 @@ class SessionFeedback(Base):
 
 class RecommendationsCache(Base):
     """Cache des recommandations du jour — évite de recalculer si le contenu n'a pas changé."""
-    __tablename__ = "recommendations_cache"
-    __table_args__ = (UniqueConstraint("user_id", "cache_date", name="uq_cache_user_date"),)
+    __tablename__ = "cronos_recommendations_cache"
+    __table_args__ = (UniqueConstraint("user_id", "cache_date", name="uq_cronos_cache_user_date"),)
 
     id                   = Column(Integer, primary_key=True)
-    user_id              = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id              = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, index=True)
     cache_date           = Column(Date, nullable=False, index=True)
     recommendations_json = Column(Text, nullable=False)
     athlete_json         = Column(Text, nullable=True)
@@ -279,11 +284,11 @@ class RecommendationsCache(Base):
 
 class ActivityTrack(Base):
     """Coordonnées GPS d'une activité — alimentent la heatmap Leaflet."""
-    __tablename__ = "activity_tracks"
-    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_track_user_activity"),)
+    __tablename__ = "cronos_activity_tracks"
+    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_cronos_track_user_activity"),)
 
     id               = Column(Integer, primary_key=True)
-    user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id          = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, index=True)
     activity_id      = Column(BigInteger, nullable=False)
     coordinates_json = Column(Text, nullable=False)   # JSON [[lat, lng], ...]
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
@@ -297,10 +302,10 @@ class ActivityTrack(Base):
 
 class NotificationPrefs(Base):
     """Préférences d'envoi de l'email quotidien de recommandation."""
-    __tablename__ = "notification_prefs"
+    __tablename__ = "cronos_notification_prefs"
 
     id            = Column(Integer, primary_key=True)
-    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    user_id       = Column(Integer, ForeignKey("cronos_users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     email_enabled = Column(Boolean, default=False)
     send_hour     = Column(Integer, default=8)    # heure UTC d'envoi (0-23)
 
