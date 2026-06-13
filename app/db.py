@@ -45,8 +45,9 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id    = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(255), unique=True, nullable=False)
+    id         = Column(Integer,              primary_key=True, autoincrement=True)
+    email      = Column(String(255),          unique=True, nullable=False)
+    created_at = Column(DateTime,             nullable=True)
 
     # Garmin fields (mapped to users table columns)
     name                = Column("garmin_username",    String(100), unique=True, nullable=True, index=True)
