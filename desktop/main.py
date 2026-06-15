@@ -352,9 +352,10 @@ class PeakflowApp(tk.Tk):
             result = api.login()
             if result and isinstance(result, tuple):
                 # 2FA requise — un seul code envoyé
-                self._api = api
-                self._name = name
-                self._email = email
+                self._api          = api
+                self._client_state = result
+                self._name         = name
+                self._email        = email
                 self.after(0, self._show_mfa_form)
             else:
                 self._send_token(api, name, email)
