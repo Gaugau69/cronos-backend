@@ -386,9 +386,7 @@ class PeakflowApp(tk.Tk):
                  justify="center").pack(padx=20, pady=(0, 20), fill="x")
         self.btn.configure(state="normal", text="Valider le code", bg="#fbbf24")
         self._set_status(
-            f"Garmin a envoyé un code de vérification à :\n{self._email}\n\n"
-            "⚠️ Si tu utilises Free.fr : vérifie le dossier Indésirables\n"
-            "sur webmail.free.fr (pas l'app Mail).",
+            f"Garmin a envoyé un code à :\n{self._email}\nEntre-le ci-dessus.",
             error=False, color="#fbbf24"
         )
 
