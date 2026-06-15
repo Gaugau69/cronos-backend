@@ -286,7 +286,7 @@ class PeakflowApp(tk.Tk):
         email = self.email_var.get().strip()
 
         if name in {"ex: Jean", ""} or email in {"ton@email.com", ""}:
-            self._set_status("→ Tous les champs sont requis.", error=True)
+            self._set_status("→ Remplis tous les champs pour continuer.", error=True)
             return
 
         if self._provider in ("polar", "withings"):
@@ -294,7 +294,7 @@ class PeakflowApp(tk.Tk):
         else:
             pwd = self.pwd_var.get().strip() if hasattr(self, "pwd_var") else ""
             if not pwd:
-                self._set_status("→ Mot de passe requis.", error=True)
+                self._set_status("→ Entre ton mot de passe Garmin Connect.", error=True)
                 return
             self.btn.configure(state="disabled", text="Connexion en cours...")
             self._set_status("", error=False)
@@ -335,7 +335,7 @@ class PeakflowApp(tk.Tk):
                 pass
         # Timeout
         self._set_status(
-            "→ Délai dépassé. Réessaie si tu n'as pas terminé l'autorisation.",
+            "→ Temps d'attente dépassé.\nFerme et rouvre l'app si tu n'as pas terminé l'autorisation.",
             error=True
         )
         self.btn.configure(state="normal", text="Connecter ma Polar →")
@@ -361,10 +361,16 @@ class PeakflowApp(tk.Tk):
                 self._send_token(api, name, email)
 
         except GarminConnectAuthenticationError:
-            self._set_status("→ Email ou mot de passe incorrect.", error=True)
+            self._set_status("→ Email ou mot de passe incorrect.\nVérifie tes identifiants Garmin Connect.", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
         except Exception as e:
-            self._set_status(f"→ Erreur : {e}", error=True)
+            err = str(e).lower()
+            if "429" in str(e) or "rate" in err:
+                self._set_status("→ Trop de tentatives détectées par Garmin.\nAttends 15-30 minutes avant de réessayer.", error=True)
+            elif "timeout" in err or "connection" in err or "network" in err:
+                self._set_status("→ Impossible de contacter Garmin.\nVérifie ta connexion internet.", error=True)
+            else:
+                self._set_status("→ Problème lors de la connexion à Garmin.\nVérifie ta connexion et réessaie.", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
 
     def _show_mfa_form(self):
@@ -387,7 +393,7 @@ class PeakflowApp(tk.Tk):
             self._api.resume_login(self._client_state, mfa_code=code)
             self._send_token(self._api, self._name, self._email)
         except Exception as e:
-            self._set_status(f"→ Code invalide ou expiré : {e}", error=True)
+            self._set_status("→ Code incorrect ou expiré.\nVérifie le code dans ton email et réessaie.", error=True)
             self.btn.configure(state="normal", text="Valider le code")
 
     def _send_token(self, api: Garmin, name: str, email: str):
@@ -412,11 +418,11 @@ class PeakflowApp(tk.Tk):
             if resp.status_code in (200, 201):
                 self.after(0, lambda: self._show_success(name))
             else:
-                detail = resp.json().get("detail", "Erreur inconnue")
-                self._set_status(f"→ Erreur serveur : {detail}", error=True)
+                print(f"[DEBUG] status={resp.status_code} body={resp.text[:500]}")
+                self._set_status("→ Connexion impossible pour le moment.\nRéessaie dans quelques instants.", error=True)
                 self.btn.configure(state="normal", text="Connecter mon compte")
         except Exception as e:
-            self._set_status(f"→ Erreur envoi token : {e}", error=True)
+            self._set_status("→ Impossible de finaliser la connexion.\nVérifie ta connexion internet et réessaie.", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
 
     # ─────────────────────────────────────────────────────────
