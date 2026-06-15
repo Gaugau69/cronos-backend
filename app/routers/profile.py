@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import AthleteProfile, PlannedRace, User, get_db
+from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(prefix="/users/{name}", tags=["profile"])
 
@@ -80,9 +81,13 @@ class PlannedRaceOut(PlannedRaceIn):
 # ─────────────────────────────────────────────────────────────
 
 @router.get("/profile", response_model=AthleteProfileOut)
-async def get_profile(name: str, db: AsyncSession = Depends(get_db)):
+async def get_profile(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
     """Retourne le profil athlète."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     profile = (
         await db.execute(select(AthleteProfile).where(AthleteProfile.user_id == user.id))
     ).scalar_one_or_none()
@@ -92,9 +97,14 @@ async def get_profile(name: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/profile", response_model=AthleteProfileOut)
-async def upsert_profile(name: str, payload: AthleteProfileIn, db: AsyncSession = Depends(get_db)):
+async def upsert_profile(
+    name: str,
+    payload: AthleteProfileIn,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
     """Crée ou met à jour le profil athlète."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
     data["user_id"] = user.id
 
@@ -122,9 +132,10 @@ async def get_races(
     name: str,
     upcoming_only: bool = True,
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
     """Retourne les courses planifiées."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     q = select(PlannedRace).where(PlannedRace.user_id == user.id)
     if upcoming_only:
         q = q.where(PlannedRace.race_date >= date.today())
@@ -133,9 +144,14 @@ async def get_races(
 
 
 @router.post("/races", response_model=PlannedRaceOut)
-async def add_race(name: str, payload: PlannedRaceIn, db: AsyncSession = Depends(get_db)):
+async def add_race(
+    name: str,
+    payload: PlannedRaceIn,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
     """Ajoute une course au calendrier."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     race = PlannedRace(user_id=user.id, **payload.model_dump())
     db.add(race)
     await db.commit()
@@ -148,9 +164,10 @@ async def update_race(
     name: str, race_id: int,
     payload: PlannedRaceIn,
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
     """Met à jour une course."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     race = (
         await db.execute(
             select(PlannedRace)
@@ -168,9 +185,14 @@ async def update_race(
 
 
 @router.delete("/races/{race_id}")
-async def delete_race(name: str, race_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_race(
+    name: str,
+    race_id: int,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
     """Supprime une course."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     await db.execute(
         delete(PlannedRace)
         .where(PlannedRace.id == race_id)
@@ -185,9 +207,10 @@ async def complete_race(
     name: str, race_id: int,
     actual_time_min: Optional[float] = None,
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
     """Marque une course comme terminée avec le temps réel."""
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     race = (
         await db.execute(
             select(PlannedRace)

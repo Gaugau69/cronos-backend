@@ -1112,7 +1112,9 @@ function closeDetail(id) {
 // ── Profil ──
 async function loadProfile(name) {
   try {
-    const r = await fetch(`${BACKEND}/users/${encodeURIComponent(name)}/profile`);
+    const r = await fetch(`${BACKEND}/users/${encodeURIComponent(name)}/profile`, {
+      headers: { 'x-cronos-email': name },
+    });
     if (!r.ok) return;
     const d = await r.json();
     if (d.level)            document.getElementById('p-level').value = d.level;
@@ -1172,7 +1174,7 @@ async function saveProfile() {
   };
   try {
     const r = await fetch(`${BACKEND}/users/${encodeURIComponent(currentUser)}/profile`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cronos-email': currentUser }, body: JSON.stringify(payload)
     });
     if (r.ok) showOk('profile-success');
     else showErr('profile-err', 'Erreur lors de la sauvegarde.');
@@ -1182,7 +1184,9 @@ async function saveProfile() {
 // ── Courses ──
 async function loadRaces(name) {
   try {
-    const r = await fetch(`${BACKEND}/users/${encodeURIComponent(name)}/races?upcoming_only=true`);
+    const r = await fetch(`${BACKEND}/users/${encodeURIComponent(name)}/races?upcoming_only=true`, {
+      headers: { 'x-cronos-email': name },
+    });
     const races = await r.json();
     if (!Array.isArray(races) || !races.length) {
       document.getElementById('races-list').innerHTML = '<div class="empty-state">Aucune course planifiée — ajoute ta prochaine compétition ci-dessous.</div>';
@@ -1223,7 +1227,7 @@ async function addRace() {
   };
   try {
     const r = await fetch(`${BACKEND}/users/${encodeURIComponent(currentUser)}/races`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cronos-email': currentUser }, body: JSON.stringify(payload)
     });
     if (r.ok) {
       showOk('race-success');
@@ -1236,7 +1240,7 @@ async function addRace() {
 async function deleteRace(id) {
   if (!currentUser || !confirm('Supprimer cette course ?')) return;
   try {
-    await fetch(`${BACKEND}/users/${encodeURIComponent(currentUser)}/races/${id}`, { method: 'DELETE' });
+    await fetch(`${BACKEND}/users/${encodeURIComponent(currentUser)}/races/${id}`, { method: 'DELETE', headers: { 'x-cronos-email': currentUser } });
     loadRaces(currentUser);
   } catch(e) {}
 }
@@ -1247,7 +1251,9 @@ async function loadHistory(name) {
   if (!wrap) return;
   wrap.innerHTML = '<div class="loading"><div class="spinner"></div><span>Chargement...</span></div>';
   try {
-    const r = await fetch(`${BACKEND}/users/${encodeURIComponent(name)}/session-history?days=30`);
+    const r = await fetch(`${BACKEND}/users/${encodeURIComponent(name)}/session-history?days=30`, {
+      headers: { 'x-cronos-email': name },
+    });
     const entries = await r.json();
     if (!Array.isArray(entries) || !entries.length) {
       wrap.innerHTML = '<div class="empty-state">Aucune séance enregistrée — clique "Je fais cette séance" pour commencer !</div>';
@@ -1283,7 +1289,7 @@ async function markDone(btn, sessionId, sessionName, category, durationMin, dist
   try {
     const r = await fetch(`${BACKEND}/session-history`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-cronos-email': currentUser },
       body: JSON.stringify({
         name: currentUser,
         session_id: sessionId,
@@ -1336,7 +1342,7 @@ async function removeHistory(btn, entryId) {
   btn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>Retiré`;
 
   try {
-    const r = await fetch(`${BACKEND}/session-history/${entryId}`, { method: 'DELETE' });
+    const r = await fetch(`${BACKEND}/session-history/${entryId}`, { method: 'DELETE', headers: { 'x-cronos-email': currentUser } });
     if (!r.ok) throw new Error('delete failed');
 
     // Toast (réutilise showToast avec un texte adapté)

@@ -11,6 +11,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionHistory, User, get_db
+from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(tags=["history"])
 
@@ -33,8 +34,12 @@ class SessionHistoryCreate(BaseModel):
 
 
 @router.post("/session-history", status_code=201)
-async def add_session_history(payload: SessionHistoryCreate, db: AsyncSession = Depends(get_db)):
-    user = await _get_user(db, payload.name)
+async def add_session_history(
+    payload: SessionHistoryCreate,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    user = await require_owner(payload.name, db, caller_email)
     entry = SessionHistory(
         user_id=user.id,
         session_id=payload.session_id,
@@ -55,8 +60,9 @@ async def get_session_history(
     name: str,
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
 ):
-    user = await _get_user(db, name)
+    user = await require_owner(name, db, caller_email)
     since = date.today() - timedelta(days=days)
     entries = (await db.execute(
         select(SessionHistory)
@@ -79,6 +85,18 @@ async def get_session_history(
 
 
 @router.delete("/session-history/{entry_id}", status_code=204)
-async def delete_session_history(entry_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_session_history(
+    entry_id: int,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    entry = (await db.execute(
+        select(SessionHistory).where(SessionHistory.id == entry_id)
+    )).scalar_one_or_none()
+    if not entry:
+        return
+    owner = (await db.execute(select(User).where(User.id == entry.user_id))).scalar_one_or_none()
+    if not owner or (owner.email or "").lower() != caller_email:
+        raise HTTPException(403, "Accès refusé.")
     await db.execute(delete(SessionHistory).where(SessionHistory.id == entry_id))
     await db.commit()
