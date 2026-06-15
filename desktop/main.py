@@ -404,7 +404,7 @@ class PeakflowApp(tk.Tk):
                  justify="center").pack(padx=20, pady=(0, 20), fill="x")
         self.btn.configure(state="normal", text="Valider le code", bg="#fbbf24")
         self._set_status(
-            f"Code 2FA envoyé à :\n{self._email}",
+            f"Code reçu à :\n{self._email}\n\nSi tu n'as pas reçu de code, active\ntemporairement la 2FA sur Garmin Connect.",
             error=False, color="#fbbf24"
         )
 
