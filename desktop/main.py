@@ -273,16 +273,6 @@ class PeakflowApp(tk.Tk):
         self._set_status("", error=False)
 
     def _on_submit(self):
-        if self._mfa_pending:
-            code = self.mfa_var.get().strip()
-            if not code:
-                self._set_status("→ Entre le code reçu par email.", error=True)
-                return
-            self.btn.configure(state="disabled", text="Vérification...")
-            if self._mfa_queue is not None:
-                self._mfa_queue.put(code)
-            return
-
         email = self.email_var.get().strip()
         peakflow_email = self.peakflow_email_var.get().strip() if hasattr(self, "peakflow_email_var") else ""
         name = self.name_var.get().strip() if hasattr(self, "name_var") else ""
@@ -355,21 +345,12 @@ class PeakflowApp(tk.Tk):
     # ─────────────────────────────────────────────────────────
 
     def _connect_garmin(self, peakflow_email: str, garmin_email: str, pwd: str):
-        import queue as _queue
-        self._mfa_queue      = _queue.Queue()
         self._peakflow_email = peakflow_email
         self._email          = garmin_email
 
-        def prompt_mfa():
-            self.after(0, self._show_mfa_form)
-            try:
-                return self._mfa_queue.get(timeout=300)
-            except _queue.Empty:
-                return ""
-
         try:
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
-            api = Garmin(garmin_email, pwd, prompt_mfa=prompt_mfa)
+            api = Garmin(garmin_email, pwd, prompt_mfa=lambda: "")
             api.login()
             self._send_token(api, peakflow_email, garmin_email)
 
@@ -386,33 +367,6 @@ class PeakflowApp(tk.Tk):
                 self._set_status("→ Problème lors de la connexion à Garmin.\nVérifie ta connexion et réessaie.", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
 
-    def _show_mfa_form(self):
-        self._mfa_pending = True
-        tk.Label(self.form, text="CODE DE VÉRIFICATION GARMIN",
-                 font=("Arial", 9, "bold"), fg="#fbbf24", bg="#13131a"
-                 ).pack(anchor="w", padx=20, pady=(14, 4))
-        self.mfa_var = tk.StringVar()
-        tk.Entry(self.form, textvariable=self.mfa_var,
-                 font=("Courier", 14), bg="#080810", fg="#fbbf24",
-                 insertbackground="#fbbf24", relief="flat", bd=0,
-                 highlightthickness=1, highlightbackground="#fbbf24",
-                 justify="center").pack(padx=20, pady=(0, 4), fill="x")
-        tk.Button(self.form, text="Je n'ai pas reçu de code →",
-                  font=("Arial", 9), bg="#13131a", fg="#64748b",
-                  relief="flat", cursor="hand2",
-                  command=self._skip_mfa
-                  ).pack(padx=20, pady=(0, 20), anchor="w")
-        self.btn.configure(state="normal", text="Valider le code", bg="#fbbf24")
-        self._set_status(
-            f"Vérifie l'email de ce compte :\n{self._email}\n(vérifie aussi les spams)",
-            error=False, color="#fbbf24"
-        )
-
-    def _skip_mfa(self):
-        """Tente la connexion sans code (comptes sans 2FA)."""
-        self.btn.configure(state="disabled", text="Connexion en cours...")
-        if self._mfa_queue is not None:
-            self._mfa_queue.put("")
 
     def _send_token(self, api: Garmin, peakflow_email: str, garmin_email: str):
         try:
