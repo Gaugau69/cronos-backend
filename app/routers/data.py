@@ -202,7 +202,7 @@ def _days_to_next_race_sync(races: list) -> int | None:
     next_race = min(upcoming, key=lambda r: r.race_date)
     try:
         return (next_race.race_date - date.today()).days
-    except:
+    except Exception:
         return None
 
 

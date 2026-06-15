@@ -101,15 +101,17 @@ async def _notification_job():
             .where(NotificationPrefs.send_hour == current_hour)
         )).all()
 
+        import os, httpx
+        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+        base_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8001"
+
         for prefs, user in prefs_list:
             if not user.email:
                 continue
             try:
-                import httpx
                 async with httpx.AsyncClient() as client:
                     r = await client.get(
-                        f"http://localhost:{settings.port if hasattr(settings, 'port') else 8001}"
-                        f"/users/{user.name}/recommend",
+                        f"{base_url}/users/{user.name}/recommend",
                         headers={"x-cronos-email": user.email or user.name},
                         timeout=20,
                     )
