@@ -69,10 +69,9 @@ async def save_withings_token(db: AsyncSession, peakflow_email: str, withings_em
                 .values(token_json=token_json, garmin_email=withings_email)
             )
         else:
-            name = peakflow_email.split("@")[0].split(".")[0].capitalize()
             stmt = (
                 pg_insert(User)
-                .values(name=name, email=peakflow_email, token_json=token_json, garmin_email=withings_email)
+                .values(name=peakflow_email, email=peakflow_email, token_json=token_json, garmin_email=withings_email)
                 .on_conflict_do_update(
                     index_elements=["email"],
                     set_={"token_json": token_json, "garmin_email": withings_email},
@@ -83,7 +82,7 @@ async def save_withings_token(db: AsyncSession, peakflow_email: str, withings_em
         log.info(f"✓ Token Withings sauvegardé pour {peakflow_email}")
         return True
     except Exception as e:
-        log.error(f"✗ Erreur sauvegarde token Withings: {e}")
+        log.error(f"✗ Erreur sauvegarde token Withings pour {peakflow_email}: {e}")
         return False
 
 

@@ -61,7 +61,7 @@ async def withings_callback(
 
 @router.get("/status")
 async def withings_status(name: str, db: AsyncSession = Depends(get_db)):
-    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.email == name))).scalar_one_or_none()
     if not user or not user.token_json:
         return JSONResponse({"connected": False})
     try:

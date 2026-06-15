@@ -87,7 +87,7 @@ async def polar_status(name: str, db: AsyncSession = Depends(get_db)):
     Polling endpoint pour l'app desktop.
     Retourne {"connected": true} si l'auth Polar est complète pour ce nom.
     """
-    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.email == name))).scalar_one_or_none()
     if not user or not user.token_json:
         return JSONResponse({"connected": False})
 

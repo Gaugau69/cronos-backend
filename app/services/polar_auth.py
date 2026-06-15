@@ -111,10 +111,9 @@ async def save_polar_token(
                 .values(token_json=token_json, garmin_email=polar_email)
             )
         else:
-            name = peakflow_email.split("@")[0].split(".")[0].capitalize()
             stmt = (
                 pg_insert(User)
-                .values(name=name, email=peakflow_email, token_json=token_json, garmin_email=polar_email)
+                .values(name=peakflow_email, email=peakflow_email, token_json=token_json, garmin_email=polar_email)
                 .on_conflict_do_update(
                     index_elements=["email"],
                     set_={"token_json": token_json, "garmin_email": polar_email},
@@ -125,7 +124,7 @@ async def save_polar_token(
         log.info(f"✓ Token Polar sauvegardé pour {peakflow_email}")
         return True
     except Exception as e:
-        log.error(f"✗ Erreur sauvegarde token Polar pour {name}: {e}")
+        log.error(f"✗ Erreur sauvegarde token Polar pour {peakflow_email}: {e}")
         return False
 
 
