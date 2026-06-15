@@ -1,0 +1,3 @@
+([('CRONOS',
+   '/Users/gauthier_argentieri/Desktop/Projets/cronos-backend/desktop/dist/CRONOS',
+   'EXECUTABLE')],)
