@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Heure UTC d'envoi des notifications (0-23)
     notif_hour: int = 7
 
+    # Secret pour les endpoints d'administration (vide = endpoints désactivés)
+    admin_secret: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

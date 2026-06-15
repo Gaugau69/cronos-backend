@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import User, get_db
 from app.schemas import UserCreate, UserOut
 from app.services.garmin_auth import login_and_save_token, upsert_garmin_user, encrypt_password
+from app.dependencies import require_admin
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -82,13 +83,13 @@ async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Dep
     return _to_out(user)
 
 
-@router.get("/", response_model=list[UserOut])
+@router.get("/", response_model=list[UserOut], dependencies=[Depends(require_admin)])
 async def list_users(db: AsyncSession = Depends(get_db)):
     users = (await db.execute(select(User).order_by(User.created_at))).scalars().all()
     return [_to_out(u) for u in users]
 
 
-@router.get("/by-email/{email}/status")
+@router.get("/by-email/{email}/status", dependencies=[Depends(require_admin)])
 async def get_user_status_by_email(email: str, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     return {
@@ -100,7 +101,7 @@ async def get_user_status_by_email(email: str, db: AsyncSession = Depends(get_db
     }
 
 
-@router.get("/by-email/{email}", response_model=UserOut)
+@router.get("/by-email/{email}", response_model=UserOut, dependencies=[Depends(require_admin)])
 async def get_user_by_email(email: str, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if not user:
@@ -116,7 +117,7 @@ async def get_user(name: str, db: AsyncSession = Depends(get_db)):
     return _to_out(user)
 
 
-@router.delete("/{name}", status_code=204)
+@router.delete("/{name}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_user(name: str, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
     if not user:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db import User
+from app.config import settings
 
 
 async def get_caller_email(x_cronos_email: str = Header(...)) -> str:
@@ -25,3 +26,11 @@ async def require_owner(name: str, db: AsyncSession, caller_email: str) -> User:
     if (user.email or "").lower() != caller_email:
         raise HTTPException(403, "Accès refusé.")
     return user
+
+
+async def require_admin(x_admin_secret: str = Header(...)) -> None:
+    """Vérifie que le header X-Admin-Secret correspond au secret configuré."""
+    if not settings.admin_secret:
+        raise HTTPException(503, "Endpoints d'administration non configurés.")
+    if x_admin_secret != settings.admin_secret:
+        raise HTTPException(403, "Accès refusé.")
