@@ -67,8 +67,16 @@ async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Dep
 
     # Utilise peakflow_email pour trouver le bon compte PeakFlow si fourni
     lookup_email = str(payload.peakflow_email) if payload.peakflow_email else str(payload.email)
-    # Dérive un garmin_username du peakflow_email (premier segment avant . ou @)
-    garmin_username = payload.name or lookup_email.split("@")[0].split(".")[0].capitalize()
+    # Dérive le garmin_username depuis l'email (ex: gauthier.argentieri@ → "Gauthier")
+    # On ignore payload.name quand peakflow_email est fourni car le desktop envoie l'email dans ce champ
+    if payload.peakflow_email:
+        existing = (await db.execute(select(User).where(User.email == lookup_email))).scalar_one_or_none()
+        if existing and existing.name:
+            garmin_username = existing.name  # garde l'username existant
+        else:
+            garmin_username = lookup_email.split("@")[0].split(".")[0].capitalize()
+    else:
+        garmin_username = payload.name or lookup_email.split("@")[0].split(".")[0].capitalize()
 
     user = await upsert_garmin_user(
         db,
