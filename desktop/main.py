@@ -362,15 +362,8 @@ class PeakflowApp(tk.Tk):
             api = Garmin(garmin_email, pwd, return_on_mfa=True)
             result = api.login()
 
-            if result and isinstance(result, tuple):
-                # Garmin demande un code — tenter d'abord sans code (sans 2FA)
-                try:
-                    api.resume_login(result, mfa_code="")
-                    self._send_token(api, peakflow_email, garmin_email)
-                    return
-                except Exception:
-                    pass
-                # Le skip a échoué → 2FA réelle, afficher le formulaire
+            mfa_needed = isinstance(result, tuple) and result[0] == "needs_mfa"
+            if mfa_needed:
                 self._api          = api
                 self._client_state = result
                 self.after(0, self._show_mfa_form)
