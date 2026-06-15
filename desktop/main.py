@@ -316,7 +316,7 @@ class PeakflowApp(tk.Tk):
             error=False, color="#38bdf8"
         )
         self.btn.configure(state="disabled", text="En attente...")
-        threading.Thread(target=self._poll_oauth_status, args=(name, provider), daemon=True).start()
+        threading.Thread(target=self._poll_oauth_status, args=(peakflow_email, provider), daemon=True).start()
 
     def _poll_oauth_status(self, name: str, provider: str):
         """Vérifie toutes les 3 secondes si l'auth Polar est complète."""
