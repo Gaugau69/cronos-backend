@@ -87,13 +87,14 @@ async def register_polar_user(access_token: str, polar_user_id: str) -> dict:
 
 async def save_polar_token(
     db: AsyncSession,
-    name: str,
-    email: str,
+    peakflow_email: str,
+    polar_email: str,
     token_data: dict,
 ) -> bool:
     """
-    Sauvegarde le token Polar en DB.
+    Sauvegarde le token Polar en DB, lié au compte PeakFlow via peakflow_email.
     """
+    from sqlalchemy import update
     try:
         polar_token = {
             "provider":      "polar",
@@ -103,17 +104,25 @@ async def save_polar_token(
         }
         token_json = json.dumps(polar_token)
 
-        stmt = (
-            pg_insert(User)
-            .values(name=name, email=email, token_json=token_json)
-            .on_conflict_do_update(
-                index_elements=["name"],
-                set_={"email": email, "token_json": token_json},
+        existing = (await db.execute(select(User).where(User.email == peakflow_email))).scalar_one_or_none()
+        if existing:
+            await db.execute(
+                update(User).where(User.email == peakflow_email)
+                .values(token_json=token_json, garmin_email=polar_email)
             )
-        )
-        await db.execute(stmt)
+        else:
+            name = peakflow_email.split("@")[0].split(".")[0].capitalize()
+            stmt = (
+                pg_insert(User)
+                .values(name=name, email=peakflow_email, token_json=token_json, garmin_email=polar_email)
+                .on_conflict_do_update(
+                    index_elements=["email"],
+                    set_={"token_json": token_json, "garmin_email": polar_email},
+                )
+            )
+            await db.execute(stmt)
         await db.commit()
-        log.info(f"✓ Token Polar sauvegardé pour {name}")
+        log.info(f"✓ Token Polar sauvegardé pour {peakflow_email}")
         return True
     except Exception as e:
         log.error(f"✗ Erreur sauvegarde token Polar pour {name}: {e}")

@@ -23,8 +23,8 @@ router = APIRouter(prefix="/auth/withings", tags=["withings"])
 
 
 @router.get("/login")
-async def withings_login(name: str, email: str):
-    state_data = json.dumps({"name": name, "email": email})
+async def withings_login(email: str, peakflow_email: str = ""):
+    state_data = json.dumps({"email": email, "peakflow_email": peakflow_email or email})
     state = base64.urlsafe_b64encode(state_data.encode()).decode()
     return RedirectResponse(url=get_withings_auth_url(state=state))
 
@@ -41,7 +41,8 @@ async def withings_callback(
 
     try:
         state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
-        name, email = state_data["name"], state_data["email"]
+        email          = state_data["email"]
+        peakflow_email = state_data.get("peakflow_email", email)
     except Exception:
         return HTMLResponse(_error_page("State invalide."))
 
@@ -50,12 +51,12 @@ async def withings_callback(
     except Exception as e:
         return HTMLResponse(_error_page(f"Erreur : {e}"))
 
-    ok = await save_withings_token(db, name, email, token_data)
+    ok = await save_withings_token(db, peakflow_email, email, token_data)
     if not ok:
         return HTMLResponse(_error_page("Erreur sauvegarde."))
 
-    log.info(f"✓ Withings connecté pour {name}")
-    return HTMLResponse(_success_page(name))
+    log.info(f"✓ Withings connecté (peakflow: {peakflow_email})")
+    return HTMLResponse(_success_page(peakflow_email))
 
 
 @router.get("/status")

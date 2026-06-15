@@ -204,19 +204,19 @@ class PeakflowApp(tk.Tk):
                  ).pack(padx=20, pady=(14, 20), anchor="w")
 
     def _build_polar_form(self, label: str = "Polar", color: str = "#38bdf8"):
-        """Formulaire Polar : prénom + email seulement (pas de mdp)."""
+        """Formulaire Polar/Withings : email PeakFlow + email provider."""
         for w in self.form.winfo_children():
             w.destroy()
 
-        tk.Label(self.form, text="TON PRÉNOM", font=("Arial", 9, "bold"),
+        tk.Label(self.form, text="EMAIL PEAKFLOW", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(20, 4))
-        self.name_var = tk.StringVar()
-        self._entry(self.form, self.name_var, "ex: Jean").pack(padx=20, fill="x")
+        self.peakflow_email_var = tk.StringVar()
+        self._entry(self.form, self.peakflow_email_var, "ton@email-peakflow.com").pack(padx=20, fill="x")
 
-        tk.Label(self.form, text="TON EMAIL", font=("Arial", 9, "bold"),
+        tk.Label(self.form, text=f"EMAIL {label.upper()}", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(14, 4))
         self.email_var = tk.StringVar()
-        self._entry(self.form, self.email_var, "ton@email.com").pack(padx=20, fill="x")
+        self._entry(self.form, self.email_var, f"ton@email-{label.lower()}.com").pack(padx=20, fill="x")
 
         tk.Label(self.form,
                  text=f"🔵  Tu seras redirigé vers {label} pour\nautoriser l'accès à tes données.",
@@ -292,7 +292,7 @@ class PeakflowApp(tk.Tk):
             return
 
         if self._provider in ("polar", "withings"):
-            self._connect_oauth(name or peakflow_email, email, self._provider)
+            self._connect_oauth(peakflow_email, email, self._provider)
         else:
             pwd = self.pwd_var.get().strip() if hasattr(self, "pwd_var") else ""
             if not pwd:
@@ -306,9 +306,9 @@ class PeakflowApp(tk.Tk):
     # Polar
     # ─────────────────────────────────────────────────────────
 
-    def _connect_oauth(self, name: str, email: str, provider: str):
-        """Ouvre le navigateur vers le flow OAuth Polar + polling pour détecter la fin."""
-        params = urlencode({"name": name, "email": email})
+    def _connect_oauth(self, peakflow_email: str, provider_email: str, provider: str):
+        """Ouvre le navigateur vers le flow OAuth Polar/Withings + polling pour détecter la fin."""
+        params = urlencode({"peakflow_email": peakflow_email, "email": provider_email})
         url = f"{BACKEND_URL}/auth/{provider}/login?{params}"
         webbrowser.open(url)
         self._set_status(
