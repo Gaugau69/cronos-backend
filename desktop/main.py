@@ -179,19 +179,19 @@ class PeakflowApp(tk.Tk):
         self._parent = parent
 
     def _build_garmin_form(self):
-        """Formulaire Garmin : prénom + email + mdp."""
+        """Formulaire Garmin : email PeakFlow + email Garmin + mdp."""
         for w in self.form.winfo_children():
             w.destroy()
 
-        tk.Label(self.form, text="TON PRÉNOM", font=("Arial", 9, "bold"),
+        tk.Label(self.form, text="EMAIL PEAKFLOW", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(20, 4))
-        self.name_var = tk.StringVar()
-        self._entry(self.form, self.name_var, "ex: Jean").pack(padx=20, fill="x")
+        self.peakflow_email_var = tk.StringVar()
+        self._entry(self.form, self.peakflow_email_var, "ton@email-peakflow.com").pack(padx=20, fill="x")
 
         tk.Label(self.form, text="EMAIL GARMIN CONNECT", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(14, 4))
         self.email_var = tk.StringVar()
-        self._entry(self.form, self.email_var, "ton@email.com").pack(padx=20, fill="x")
+        self._entry(self.form, self.email_var, "ton@email-garmin.com").pack(padx=20, fill="x")
 
         tk.Label(self.form, text="MOT DE PASSE GARMIN CONNECT", font=("Arial", 9, "bold"),
                  fg="#64748b", bg="#13131a").pack(anchor="w", padx=20, pady=(14, 4))
@@ -282,15 +282,17 @@ class PeakflowApp(tk.Tk):
             threading.Thread(target=self._submit_mfa, args=(code,), daemon=True).start()
             return
 
-        name  = self.name_var.get().strip()
         email = self.email_var.get().strip()
+        peakflow_email = self.peakflow_email_var.get().strip() if hasattr(self, "peakflow_email_var") else ""
+        name = self.name_var.get().strip() if hasattr(self, "name_var") else ""
 
-        if name in {"ex: Jean", ""} or email in {"ton@email.com", ""}:
+        placeholders = {"ton@email-peakflow.com", "ton@email-garmin.com", "ton@email.com", "ex: Jean", ""}
+        if email in placeholders or (hasattr(self, "peakflow_email_var") and peakflow_email in placeholders):
             self._set_status("→ Remplis tous les champs pour continuer.", error=True)
             return
 
         if self._provider in ("polar", "withings"):
-            self._connect_oauth(name, email, self._provider)
+            self._connect_oauth(name or peakflow_email, email, self._provider)
         else:
             pwd = self.pwd_var.get().strip() if hasattr(self, "pwd_var") else ""
             if not pwd:
@@ -298,7 +300,7 @@ class PeakflowApp(tk.Tk):
                 return
             self.btn.configure(state="disabled", text="Connexion en cours...")
             self._set_status("", error=False)
-            threading.Thread(target=self._connect_garmin, args=(name, email, pwd), daemon=True).start()
+            threading.Thread(target=self._connect_garmin, args=(peakflow_email, email, pwd), daemon=True).start()
 
     # ─────────────────────────────────────────────────────────
     # Polar
@@ -344,21 +346,21 @@ class PeakflowApp(tk.Tk):
     # Garmin
     # ─────────────────────────────────────────────────────────
 
-    def _connect_garmin(self, name: str, email: str, pwd: str):
+    def _connect_garmin(self, peakflow_email: str, garmin_email: str, pwd: str):
         try:
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
 
-            api = Garmin(email, pwd, return_on_mfa=True)
+            api = Garmin(garmin_email, pwd, return_on_mfa=True)
             result = api.login()
             if result and isinstance(result, tuple):
                 # 2FA requise — un seul code envoyé
-                self._api          = api
-                self._client_state = result
-                self._name         = name
-                self._email        = email
+                self._api            = api
+                self._client_state   = result
+                self._peakflow_email = peakflow_email
+                self._email          = garmin_email
                 self.after(0, self._show_mfa_form)
             else:
-                self._send_token(api, name, email)
+                self._send_token(api, peakflow_email, garmin_email)
 
         except GarminConnectAuthenticationError:
             self._set_status("→ Email ou mot de passe incorrect.\nVérifie tes identifiants Garmin Connect.", error=True)
@@ -393,32 +395,30 @@ class PeakflowApp(tk.Tk):
     def _submit_mfa(self, code: str):
         try:
             self._api.resume_login(self._client_state, mfa_code=code)
-            self._send_token(self._api, self._name, self._email)
+            self._send_token(self._api, self._peakflow_email, self._email)
         except Exception as e:
             self._set_status("→ Code incorrect ou expiré.\nVérifie le code dans ton email et réessaie.", error=True)
             self.btn.configure(state="normal", text="Valider le code")
 
-    def _send_token(self, api: Garmin, name: str, email: str):
+    def _send_token(self, api: Garmin, peakflow_email: str, garmin_email: str):
         try:
             token_json = dump_token(api)
             self._set_status("Envoi sécurisé au serveur...", error=False, color="#6ee7b7")
-            
-            # Récupère le mot de passe pour le re-login automatique
             pwd = self.pwd_var.get().strip() if hasattr(self, "pwd_var") else ""
-            
             resp = requests.post(
                 f"{BACKEND_URL}/users/register-token",
                 json={
-                    "name":       name,
-                    "email":      email,
-                    "token_json": token_json,
-                    "garmin_email":    email,
-                    "garmin_password": pwd,  # ← chiffré côté backend
+                    "name":            peakflow_email,
+                    "email":           garmin_email,
+                    "peakflow_email":  peakflow_email,
+                    "token_json":      token_json,
+                    "garmin_email":    garmin_email,
+                    "garmin_password": pwd,
                 },
                 timeout=60,
             )
             if resp.status_code in (200, 201):
-                self.after(0, lambda: self._show_success(name))
+                self.after(0, lambda: self._show_success(peakflow_email))
             else:
                 print(f"[DEBUG] status={resp.status_code} body={resp.text[:500]}")
                 self._set_status("→ Connexion impossible pour le moment.\nRéessaie dans quelques instants.", error=True)

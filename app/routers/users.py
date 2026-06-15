@@ -21,6 +21,7 @@ class UserTokenRegister(BaseModel):
     name: str
     email: EmailStr
     token_json: str
+    peakflow_email:  Optional[EmailStr] = None
     garmin_email:    Optional[str] = None
     garmin_password: Optional[str] = None
 
@@ -64,12 +65,17 @@ async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Dep
     if payload.garmin_password:
         password_enc = encrypt_password(payload.garmin_password)
 
+    # Utilise peakflow_email pour trouver le bon compte PeakFlow si fourni
+    lookup_email = str(payload.peakflow_email) if payload.peakflow_email else str(payload.email)
+    # Dérive un garmin_username du peakflow_email (premier segment avant . ou @)
+    garmin_username = payload.name or lookup_email.split("@")[0].split(".")[0].capitalize()
+
     user = await upsert_garmin_user(
         db,
-        garmin_username=payload.name,
-        email=payload.email,
+        garmin_username=garmin_username,
+        email=lookup_email,
         token_json=payload.token_json,
-        garmin_email=payload.garmin_email or payload.email,
+        garmin_email=payload.garmin_email or str(payload.email),
         garmin_password_enc=password_enc,
     )
     return _to_out(user)
