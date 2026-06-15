@@ -384,7 +384,7 @@ class PeakflowApp(tk.Tk):
 
     def _show_mfa_form(self):
         self._mfa_pending = True
-        tk.Label(self.form, text="CODE DE VÉRIFICATION (reçu par email)",
+        tk.Label(self.form, text="CODE DE VÉRIFICATION GARMIN",
                  font=("Arial", 9, "bold"), fg="#fbbf24", bg="#13131a"
                  ).pack(anchor="w", padx=20, pady=(14, 4))
         self.mfa_var = tk.StringVar()
@@ -392,10 +392,14 @@ class PeakflowApp(tk.Tk):
                  font=("Courier", 14), bg="#080810", fg="#fbbf24",
                  insertbackground="#fbbf24", relief="flat", bd=0,
                  highlightthickness=1, highlightbackground="#fbbf24",
-                 justify="center").pack(padx=20, pady=(0, 20), fill="x")
+                 justify="center").pack(padx=20, pady=(0, 4), fill="x")
+        tk.Label(self.form,
+                 text="ℹ️  Même sans 2FA, Garmin envoie un code\nquand tu connectes un nouvel appareil.",
+                 font=("Arial", 9), fg="#94a3b8", bg="#13131a", justify="left"
+                 ).pack(padx=20, pady=(0, 20), anchor="w")
         self.btn.configure(state="normal", text="Valider le code", bg="#fbbf24")
         self._set_status(
-            f"Garmin a envoyé un code à :\n{self._email}\nEntre-le ci-dessus.",
+            f"Vérifie l'email Garmin de ce compte :\n{self._email}\n(vérifie aussi les spams)",
             error=False, color="#fbbf24"
         )
 
