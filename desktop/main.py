@@ -69,7 +69,7 @@ class PeakflowApp(tk.Tk):
         self._name          = None
         self._email         = None
         self._mfa_pending   = False
-        self._mfa_queue     = None
+        self._client_state  = None
         self._provider      = "garmin"
 
         self._build_ui()
@@ -273,6 +273,15 @@ class PeakflowApp(tk.Tk):
         self._set_status("", error=False)
 
     def _on_submit(self):
+        if self._mfa_pending:
+            code = self.mfa_var.get().strip()
+            if not code:
+                self._set_status("→ Entre le code reçu par email.", error=True)
+                return
+            self.btn.configure(state="disabled", text="Vérification...")
+            threading.Thread(target=self._submit_mfa, args=(code,), daemon=True).start()
+            return
+
         email = self.email_var.get().strip()
         peakflow_email = self.peakflow_email_var.get().strip() if hasattr(self, "peakflow_email_var") else ""
         name = self.name_var.get().strip() if hasattr(self, "name_var") else ""
@@ -350,9 +359,23 @@ class PeakflowApp(tk.Tk):
 
         try:
             self._set_status("Connexion à Garmin...", error=False, color="#6ee7b7")
-            api = Garmin(garmin_email, pwd, prompt_mfa=lambda: "")
-            api.login()
-            self._send_token(api, peakflow_email, garmin_email)
+            api = Garmin(garmin_email, pwd, return_on_mfa=True)
+            result = api.login()
+
+            if result and isinstance(result, tuple):
+                # Garmin demande un code — tenter d'abord sans code (sans 2FA)
+                try:
+                    api.resume_login(result, mfa_code="")
+                    self._send_token(api, peakflow_email, garmin_email)
+                    return
+                except Exception:
+                    pass
+                # Le skip a échoué → 2FA réelle, afficher le formulaire
+                self._api          = api
+                self._client_state = result
+                self.after(0, self._show_mfa_form)
+            else:
+                self._send_token(api, peakflow_email, garmin_email)
 
         except GarminConnectAuthenticationError:
             self._set_status("→ Email ou mot de passe incorrect.\nVérifie tes identifiants Garmin Connect.", error=True)
@@ -367,6 +390,31 @@ class PeakflowApp(tk.Tk):
                 self._set_status("→ Problème lors de la connexion à Garmin.\nVérifie ta connexion et réessaie.", error=True)
             self.btn.configure(state="normal", text="Connecter mon compte")
 
+
+    def _show_mfa_form(self):
+        self._mfa_pending = True
+        tk.Label(self.form, text="CODE 2FA (reçu par email)",
+                 font=("Arial", 9, "bold"), fg="#fbbf24", bg="#13131a"
+                 ).pack(anchor="w", padx=20, pady=(14, 4))
+        self.mfa_var = tk.StringVar()
+        tk.Entry(self.form, textvariable=self.mfa_var,
+                 font=("Courier", 14), bg="#080810", fg="#fbbf24",
+                 insertbackground="#fbbf24", relief="flat", bd=0,
+                 highlightthickness=1, highlightbackground="#fbbf24",
+                 justify="center").pack(padx=20, pady=(0, 20), fill="x")
+        self.btn.configure(state="normal", text="Valider le code", bg="#fbbf24")
+        self._set_status(
+            f"Code 2FA envoyé à :\n{self._email}",
+            error=False, color="#fbbf24"
+        )
+
+    def _submit_mfa(self, code: str):
+        try:
+            self._api.resume_login(self._client_state, mfa_code=code)
+            self._send_token(self._api, self._peakflow_email, self._email)
+        except Exception:
+            self._set_status("→ Code incorrect ou expiré. Réessaie.", error=True)
+            self.btn.configure(state="normal", text="Valider le code")
 
     def _send_token(self, api: Garmin, peakflow_email: str, garmin_email: str):
         try:
