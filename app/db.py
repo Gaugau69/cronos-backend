@@ -49,6 +49,8 @@ class User(Base):
     email      = Column(String(255),          unique=True, nullable=False)
     created_at = Column(DateTime,             nullable=True)
 
+    firstname           = Column(String(100),           nullable=True)
+
     # Garmin fields (mapped to users table columns)
     name                = Column("garmin_username",    String(100), unique=True, nullable=True, index=True)
     token_json          = Column("garmin_token_json",  Text,        nullable=True)

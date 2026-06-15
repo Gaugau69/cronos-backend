@@ -31,6 +31,7 @@ def _to_out(u: User) -> UserOut:
         id=u.id,
         name=u.name or "",
         email=u.email,
+        display_name=u.firstname or u.name or u.email,
         created_at=u.created_at,
         has_token=bool(u.token_json),
     )
@@ -91,10 +92,11 @@ async def list_users(db: AsyncSession = Depends(get_db)):
 async def get_user_status_by_email(email: str, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     return {
-        "registered": bool(user),
-        "has_token":  bool(user and user.token_json),
-        "name":       user.name if user else None,
-        "id":         user.id   if user else None,
+        "registered":   bool(user),
+        "has_token":    bool(user and user.token_json),
+        "name":         user.name if user else None,
+        "id":           user.id   if user else None,
+        "display_name": (user.firstname or user.name or email) if user else None,
     }
 
 

@@ -331,7 +331,14 @@ class PeakflowApp(tk.Tk):
                     timeout=10,
                 )
                 if resp.status_code == 200 and resp.json().get("connected"):
-                    self.after(0, lambda: self._show_success(name))
+                    try:
+                        status = requests.get(
+                            f"{BACKEND_URL}/users/by-email/{name}/status", timeout=5
+                        )
+                        display_name = status.json().get("display_name") or name
+                    except Exception:
+                        display_name = name
+                    self.after(0, lambda dn=display_name: self._show_success(dn))
                     return
             except Exception:
                 pass
@@ -418,7 +425,8 @@ class PeakflowApp(tk.Tk):
                 timeout=60,
             )
             if resp.status_code in (200, 201):
-                self.after(0, lambda: self._show_success(peakflow_email))
+                display_name = resp.json().get("display_name") or peakflow_email
+                self.after(0, lambda dn=display_name: self._show_success(dn))
             else:
                 print(f"[DEBUG] status={resp.status_code} body={resp.text[:500]}")
                 self._set_status("→ Connexion impossible pour le moment.\nRéessaie dans quelques instants.", error=True)
