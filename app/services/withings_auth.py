@@ -7,6 +7,7 @@ import logging
 from urllib.parse import urlencode
 
 import httpx
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +53,7 @@ async def exchange_code_for_token(code: str) -> dict:
         return data.get("body", {})
 
 
-async def save_withings_token(db: AsyncSession, name: str, email: str, token_data: dict) -> bool:
+async def save_withings_token(db: AsyncSession, peakflow_email: str, withings_email: str, token_data: dict) -> bool:
     try:
         token = {
             "provider":      "withings",
@@ -60,20 +61,28 @@ async def save_withings_token(db: AsyncSession, name: str, email: str, token_dat
             "refresh_token": token_data.get("refresh_token"),
             "userid":        str(token_data.get("userid", "")),
         }
-        stmt = (
-            pg_insert(User)
-            .values(name=name, email=email, token_json=json.dumps(token))
-            .on_conflict_do_update(
-                index_elements=["name"],
-                set_={"email": email, "token_json": json.dumps(token)},
+        token_json = json.dumps(token)
+        existing = (await db.execute(select(User).where(User.email == peakflow_email))).scalar_one_or_none()
+        if existing:
+            await db.execute(
+                update(User).where(User.email == peakflow_email)
+                .values(token_json=token_json, garmin_email=withings_email)
             )
-        )
-        await db.execute(stmt)
+        else:
+            stmt = (
+                pg_insert(User)
+                .values(name=peakflow_email, email=peakflow_email, token_json=token_json, garmin_email=withings_email)
+                .on_conflict_do_update(
+                    index_elements=["email"],
+                    set_={"token_json": token_json, "garmin_email": withings_email},
+                )
+            )
+            await db.execute(stmt)
         await db.commit()
-        log.info(f"✓ Token Withings sauvegardé pour {name}")
+        log.info(f"✓ Token Withings sauvegardé pour {peakflow_email}")
         return True
     except Exception as e:
-        log.error(f"✗ Erreur sauvegarde token Withings: {e}")
+        log.error(f"✗ Erreur sauvegarde token Withings pour {peakflow_email}: {e}")
         return False
 
 

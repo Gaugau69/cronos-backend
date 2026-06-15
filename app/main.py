@@ -110,6 +110,7 @@ async def _notification_job():
                     r = await client.get(
                         f"http://localhost:{settings.port if hasattr(settings, 'port') else 8001}"
                         f"/users/{user.name}/recommend",
+                        headers={"x-cronos-email": user.email or user.name},
                         timeout=20,
                     )
                 payload = r.json()

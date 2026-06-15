@@ -33,11 +33,11 @@ router = APIRouter(prefix="/auth/polar", tags=["polar"])
 
 
 @router.get("/login")
-async def polar_login(name: str, email: str):
-    state_data = json.dumps({"name": name, "email": email})
+async def polar_login(email: str, peakflow_email: str = ""):
+    state_data = json.dumps({"email": email, "peakflow_email": peakflow_email or email})
     state = base64.urlsafe_b64encode(state_data.encode()).decode()
     auth_url = get_polar_auth_url(state=state)
-    log.info(f"Polar OAuth démarré pour {name} ({email})")
+    log.info(f"Polar OAuth démarré ({email}, peakflow: {peakflow_email})")
     return RedirectResponse(url=auth_url)
 
 
@@ -56,8 +56,8 @@ async def polar_callback(
 
     try:
         state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
-        name  = state_data["name"]
-        email = state_data["email"]
+        email          = state_data["email"]
+        peakflow_email = state_data.get("peakflow_email", email)
     except Exception:
         return HTMLResponse(_error_page("State invalide."))
 
@@ -73,12 +73,12 @@ async def polar_callback(
     except Exception as e:
         log.warning(f"Polar register user: {e}")
 
-    ok = await save_polar_token(db, name, email, token_data)
+    ok = await save_polar_token(db, peakflow_email, email, token_data)
     if not ok:
         return HTMLResponse(_error_page("Erreur lors de la sauvegarde."))
 
-    log.info(f"✓ Polar connecté pour {name} (user_id: {polar_user_id})")
-    return HTMLResponse(_success_page(name))
+    log.info(f"✓ Polar connecté (peakflow: {peakflow_email}, polar: {email})")
+    return HTMLResponse(_success_page(peakflow_email))
 
 
 @router.get("/status")
@@ -87,7 +87,7 @@ async def polar_status(name: str, db: AsyncSession = Depends(get_db)):
     Polling endpoint pour l'app desktop.
     Retourne {"connected": true} si l'auth Polar est complète pour ce nom.
     """
-    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    user = (await db.execute(select(User).where(User.email == name))).scalar_one_or_none()
     if not user or not user.token_json:
         return JSONResponse({"connected": False})
 

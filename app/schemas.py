@@ -19,6 +19,7 @@ class UserOut(BaseModel):
     id: int
     name: Optional[str] = None
     email: str
+    display_name: Optional[str] = None
     created_at: Optional[datetime] = None
     has_token: bool
 
