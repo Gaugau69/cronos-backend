@@ -4,9 +4,11 @@ app/services/collect.py — Orchestration de la collecte et upsert en DB.
 Supporte Garmin, Polar et Withings — détecte automatiquement le provider depuis le token.
 """
 
+import asyncio
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 import httpx
@@ -165,6 +167,26 @@ async def _notify_watch_not_worn(name: str, email: str):
 # Garmin
 # ─────────────────────────────────────────────────────────────
 
+_PARSER_TIMEOUT = 25  # secondes max par parser Garmin avant abandon
+_executor = ThreadPoolExecutor(max_workers=4)
+
+
+async def _run_parser(parser, api, day: date, timeout: float = _PARSER_TIMEOUT) -> dict:
+    """Exécute un parser Garmin synchrone dans un thread avec timeout."""
+    loop = asyncio.get_event_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(_executor, parser, api, day),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        log.warning(f"Timeout parser {parser.__name__} pour {day} — données ignorées")
+        return {}
+    except Exception as e:
+        log.debug(f"Erreur parser {parser.__name__} pour {day}: {e}")
+        return {}
+
+
 async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
     api = await get_api(db, user)
     if not api:
@@ -181,7 +203,7 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
         try:
             row = {"user_id": user.id, "date": current}
             for parser in _GARMIN_PARSERS:
-                row.update(parser(api, current))
+                row.update(await _run_parser(parser, api, current))
 
             set_dict = _safe_upsert_row(row, ("user_id", "date"))
             await db.execute(
@@ -194,7 +216,9 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
             )
             days_ok += 1
 
-            for act in parse_activities(api, current):
+            acts_raw = await _run_parser(parse_activities, api, current)
+            acts_list = acts_raw if isinstance(acts_raw, list) else []
+            for act in acts_list:
                 act_row = {"user_id": user.id, "date": current, **act}
                 act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
                 await db.execute(

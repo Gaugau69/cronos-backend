@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import sys
+import threading
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -49,16 +50,21 @@ WINDOW = 14
 
 # ── Chargement des modèles (lazy, singleton) ─────────────────────────────────
 
-_encoder   = None
-_scorer    = None
-_ml_ready  = None   # None = pas encore testé, True/False après premier appel
+_encoder    = None
+_scorer     = None
+_ml_ready   = None   # None = pas encore testé, True/False après premier appel
+_models_lock = threading.Lock()  # double-checked locking pour la sécurité thread
 
 
 def _load_models() -> bool:
     global _encoder, _scorer, _ml_ready
 
-    if _ml_ready is not None:
+    if _ml_ready is not None:   # fast-path sans lock
         return _ml_ready
+
+    with _models_lock:
+        if _ml_ready is not None:   # re-vérification dans le lock
+            return _ml_ready
 
     try:
         if not CHECKPOINT_ENCODER.exists() or not CHECKPOINT_RECOMMENDER.exists():
