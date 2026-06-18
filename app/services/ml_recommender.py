@@ -48,6 +48,7 @@ FEATURE_NAMES = [
     "duration", "elevation_gain", "training_load", "is_rest_day",
     "active_minutes", "temperature_c", "precipitation_mm",
     "wellness_score", "consecutive_active",
+    "economy_trend",
 ]
 WINDOW = 14
 
@@ -242,6 +243,7 @@ def _build_feature_rows(metrics: list, activities: list) -> list[dict]:
             "precipitation_mm": precip,
             "wellness_score":   wness,
             "consecutive_active": 0.0,  # calculé après tri
+            "economy_trend":      0.0,  # calculé après tri
         })
 
     rows.sort(key=lambda r: r["date"])
@@ -251,6 +253,17 @@ def _build_feature_rows(metrics: list, activities: list) -> list[dict]:
     for r in rows:
         count = count + 1 if r["is_rest_day"] == 0.0 else 0
         r["consecutive_active"] = float(count)
+
+    # Economy trend : pente linéaire de pace_hr_ratio sur la fenêtre
+    phr = [r["pace_hr_ratio"] for r in rows]
+    nonzero = [(i, v) for i, v in enumerate(phr) if v > 0]
+    if len(nonzero) >= 3:
+        xs, ys = zip(*nonzero)
+        slope = float(np.polyfit(xs, ys, 1)[0])
+    else:
+        slope = 0.0
+    for r in rows:
+        r["economy_trend"] = slope
 
     return rows
 
