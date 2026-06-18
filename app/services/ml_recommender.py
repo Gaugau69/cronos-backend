@@ -112,12 +112,15 @@ def _load_models() -> bool:
 # ── Normalisation robuste ────────────────────────────────────────────────────
 
 def _load_norm_stats(user_name: Optional[str]) -> Optional[dict]:
-    """Charge les stats de normalisation pour l'utilisateur (ou stats globales)."""
+    """Charge les stats de normalisation propres à l'utilisateur.
+    Retourne None si introuvables → le fallback compute depuis ses données réelles."""
     if not NORM_STATS_PATH.exists():
         return None
     with open(NORM_STATS_PATH) as f:
         all_stats = json.load(f)
-    return all_stats.get(user_name) or next(iter(all_stats.values()), None)
+    # Retourne UNIQUEMENT les stats de cet utilisateur — pas celles d'un autre.
+    # Si absent, None déclenche _compute_norm_stats_from_data(rows) en aval.
+    return all_stats.get(user_name) or None
 
 
 def _compute_norm_stats_from_data(rows: list[dict]) -> dict:
