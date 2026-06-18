@@ -43,8 +43,11 @@ NORM_STATS_PATH       = ML_DIR / "data" / "processed" / "norm_stats.json"
 
 FEATURE_NAMES = [
     "hrv_rmssd", "hr_rest", "sleep_duration", "sleep_quality",
+    "body_battery", "stress_score", "spo2", "respiration_rate",
     "hr_mean", "hr_drift", "pace_mean", "pace_hr_ratio",
     "duration", "elevation_gain", "training_load", "is_rest_day",
+    "active_minutes", "temperature_c", "precipitation_mm",
+    "wellness_score", "consecutive_active",
 ]
 WINDOW = 14
 
@@ -79,7 +82,7 @@ def _load_models() -> bool:
         from models.encoder import Encoder
         from recommendation.recommender import SessionScorer
 
-        enc = Encoder()
+        enc = Encoder(n_features=len(FEATURE_NAMES))
         enc.load_state_dict(
             torch.load(CHECKPOINT_ENCODER, map_location="cpu", weights_only=True),
             strict=False,
@@ -193,6 +196,14 @@ def _build_feature_rows(metrics: list, activities: list) -> list[dict]:
         hr_r  = float(getattr(m, "resting_hr",          0) or 0)
         slp_m = float(getattr(m, "sleep_duration_min",  0) or 0)
         slp_q = float(getattr(m, "sleep_score",         0) or 0)
+        bb    = float(getattr(m, "body_battery_charged",0) or 0)
+        stress= float(getattr(m, "avg_stress",          0) or 0)
+        spo2  = float(getattr(m, "avg_spo2",            0) or 0)
+        resp  = float(getattr(m, "avg_respiration_rate",0) or 0)
+        actmin= float(getattr(m, "active_min",          0) or 0)
+        temp  = float(getattr(m, "temperature_c",       0) or 0)
+        precip= float(getattr(m, "precipitation_mm",    0) or 0)
+        wness = float(getattr(m, "wellness_score",    0.5) or 0.5)
 
         act = acts_by_date.get(d)
         if act and act["n"] > 0:
@@ -200,7 +211,7 @@ def _build_feature_rows(metrics: list, activities: list) -> list[dict]:
             pace     = act["pace_sum"] / act["n"]
             dur      = act["duration"]
             elv      = act["elevation"]
-            hr_drift = (act["hr_max"] - hr_mean) / hr_mean if hr_mean > 0 else 0
+            hr_drift = min(1.0, max(0.0, (act["hr_max"] - hr_mean) / hr_mean)) if hr_mean > 0 else 0
             p_hr_r   = pace / hr_mean if hr_mean > 0 else 0
             load     = dur * hr_mean / 100
             is_rest  = 0.0
@@ -209,22 +220,38 @@ def _build_feature_rows(metrics: list, activities: list) -> list[dict]:
             is_rest = 1.0
 
         rows.append({
-            "date":          d,
-            "hrv_rmssd":     hrv,
-            "hr_rest":       hr_r,
-            "sleep_duration":slp_m / 60,
-            "sleep_quality": slp_q,
-            "hr_mean":       hr_mean,
-            "hr_drift":      hr_drift,
-            "pace_mean":     pace,
-            "pace_hr_ratio": p_hr_r,
-            "duration":      dur,
-            "elevation_gain":elv,
-            "training_load": load,
-            "is_rest_day":   is_rest,
+            "date":             d,
+            "hrv_rmssd":        hrv,
+            "hr_rest":          hr_r,
+            "sleep_duration":   slp_m / 60,
+            "sleep_quality":    slp_q,
+            "body_battery":     bb,
+            "stress_score":     stress,
+            "spo2":             spo2,
+            "respiration_rate": resp,
+            "hr_mean":          hr_mean,
+            "hr_drift":         hr_drift,
+            "pace_mean":        pace,
+            "pace_hr_ratio":    p_hr_r,
+            "duration":         dur,
+            "elevation_gain":   elv,
+            "training_load":    load,
+            "is_rest_day":      is_rest,
+            "active_minutes":   actmin,
+            "temperature_c":    temp,
+            "precipitation_mm": precip,
+            "wellness_score":   wness,
+            "consecutive_active": 0.0,  # calculé après tri
         })
 
     rows.sort(key=lambda r: r["date"])
+
+    # Calcul des jours actifs consécutifs
+    count = 0
+    for r in rows:
+        count = count + 1 if r["is_rest_day"] == 0.0 else 0
+        r["consecutive_active"] = float(count)
+
     return rows
 
 
