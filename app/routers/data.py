@@ -2,6 +2,7 @@
 app/routers/data.py — Collecte manuelle, métriques et recommandations CRONOS.
 """
 
+import asyncio
 import json
 from datetime import date, timedelta
 from typing import Optional
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import (
     Activity, AthleteProfile, DailyMetric, PlannedRace,
     RecommendationsCache, SessionFeedback, SessionHistory, User, get_db,
+    AsyncSessionLocal,
 )
 from app.schemas import ActivityOut, CollectRequest, DailyMetricOut
 from app.services.collect import collect_user_range
@@ -21,6 +23,25 @@ from app.services.ml_recommender import ml_recommend
 from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(tags=["data"])
+
+# ─── Suivi des jobs de collecte en mémoire ────────────────────
+_collect_jobs: dict[str, dict] = {}
+
+
+async def _run_collect_bg(job_id: str, user_id: int, start: date, end: date) -> None:
+    """Lance collect_user_range en arrière-plan et met à jour _collect_jobs."""
+    total_days = (end - start).days + 1
+    _collect_jobs[job_id] = {"status": "running", "days_done": 0, "days_total": total_days}
+    try:
+        async with AsyncSessionLocal() as db:
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+            if not user:
+                _collect_jobs[job_id] = {"status": "error", "reason": "user not found"}
+                return
+            result = await collect_user_range(db, user, start, end)
+            _collect_jobs[job_id] = {"status": "done", "days_total": total_days, **result}
+    except Exception as e:
+        _collect_jobs[job_id] = {"status": "error", "reason": str(e)}
 
 
 async def _get_user(db: AsyncSession, name: str) -> User:
@@ -32,13 +53,21 @@ async def _get_user(db: AsyncSession, name: str) -> User:
 
 @router.post("/collect")
 async def collect(payload: CollectRequest, db: AsyncSession = Depends(get_db)):
+    """Lance la collecte Garmin en arrière-plan. Retourne immédiatement un job_id."""
     user = await _get_user(db, payload.name)
     if not user.token_json:
         raise HTTPException(400, "Pas de token Garmin pour cet utilisateur.")
     start = payload.start_date or (date.today() - timedelta(days=1))
     end   = payload.end_date   or start
-    summary = await collect_user_range(db, user, start, end)
-    return {"user": payload.name, "start": start, "end": end, **summary}
+    job_id = f"{payload.name}_{start.isoformat()}_{end.isoformat()}"
+    asyncio.create_task(_run_collect_bg(job_id, user.id, start, end))
+    return {"job_id": job_id, "status": "started", "days_total": (end - start).days + 1}
+
+
+@router.get("/collect/status/{job_id}")
+async def collect_status(job_id: str):
+    """Retourne l'état d'un job de collecte."""
+    return _collect_jobs.get(job_id, {"status": "unknown"})
 
 
 @router.get("/users/{name}/daily", response_model=list[DailyMetricOut])
@@ -244,43 +273,56 @@ def _compute_terrain_profile(activities: list) -> dict:
 
 def _compute_training_load(activities: list) -> dict:
     """
-    Charge d'entraînement sur 7j / 42j.
-    Returns dict with ATL, CTL, TSB, weekly_km, weekly_sessions.
+    ATL/CTL/TSB selon le modèle PMC (Performance Management Chart).
+
+    ATL (Acute Training Load)     — EMA τ=7 jours,  α=1-e^(-1/7)  ≈ 0.133
+    CTL (Chronic Training Load)   — EMA τ=42 jours, α=1-e^(-1/42) ≈ 0.024
+    TSB (Training Stress Balance) = CTL - ATL
+        TSB > 0 → fraîcheur/forme disponible
+        TSB < 0 → fatigue accumulée
     """
-    import numpy as np
+    import math
     today = date.today()
 
-    loads_7  = []
-    loads_42 = []
-    km_7  = 0.0
-    sess_7 = 0
+    # Agrège la charge par jour (plusieurs activités possibles le même jour)
+    daily_loads: dict = {}
+    km_7, sess_7 = 0.0, 0
 
     for a in activities:
         adate = a.date
-        load = float(a.duration_min or 0) * float(a.avg_hr or 0) / 100
         days_ago = (today - adate).days
-
-        if days_ago <= 42:
-            loads_42.append(load)
+        if days_ago > 42:
+            continue
+        load = float(a.duration_min or 0) * float(a.avg_hr or 0) / 100
+        daily_loads[adate] = daily_loads.get(adate, 0.0) + load
         if days_ago <= 7:
-            loads_7.append(load)
             km_7   += float(a.distance_km or 0)
             sess_7 += 1
 
-    atl = float(np.mean(loads_7))  if loads_7  else 0.0
-    ctl = float(np.mean(loads_42)) if loads_42 else 0.0
-    tsb = round(ctl - atl, 1)      # positif = fraîcheur, négatif = fatigue
+    # Coefficients EMA standards (déclin exponentiel, compatibles TrainingPeaks/GC)
+    alpha_atl = 1.0 - math.exp(-1.0 / 7.0)    # ≈ 0.133
+    alpha_ctl = 1.0 - math.exp(-1.0 / 42.0)   # ≈ 0.024
+
+    # Calcul EMA du plus ancien (J-41) au plus récent (J-0)
+    atl, ctl = 0.0, 0.0
+    for offset in range(41, -1, -1):
+        day  = today - timedelta(days=offset)
+        load = daily_loads.get(day, 0.0)
+        atl  = atl + alpha_atl * (load - atl)
+        ctl  = ctl + alpha_ctl * (load - ctl)
+
+    tsb = round(ctl - atl, 1)
 
     return {
-        "atl":              round(atl, 1),
-        "ctl":              round(ctl, 1),
-        "tsb":              tsb,
-        "weekly_km":        round(km_7, 1),
-        "weekly_sessions":  sess_7,
-        "load_trend":       (
-            "surcharge"   if tsb < -20 else
-            "charge"      if tsb < -5  else
-            "équilibré"   if tsb < 10  else
+        "atl":             round(atl, 1),
+        "ctl":             round(ctl, 1),
+        "tsb":             tsb,
+        "weekly_km":       round(km_7, 1),
+        "weekly_sessions": sess_7,
+        "load_trend": (
+            "surcharge" if tsb < -20 else
+            "charge"    if tsb < -5  else
+            "équilibré" if tsb < 10  else
             "fraîcheur"
         ),
     }

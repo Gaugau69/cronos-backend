@@ -174,9 +174,16 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://peakflow-technologies.com",
+        "https://peakflow-technologies-dev.up.railway.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8080",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 @app.get("/", include_in_schema=False)
