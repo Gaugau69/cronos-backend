@@ -106,24 +106,16 @@ def decrypt_password(encrypted: str) -> str | None:
 def _try_fetch_display_name(api, email: str = "") -> None:
     """Récupère le vrai displayName Garmin (UUID profil) utilisé par les endpoints wellness."""
 
-    # 1. Appel direct au social profile Garmin — c'est cet UUID que les endpoints wellness utilisent
-    for path in (
-        "/userprofile-service/socialProfile",
-        "/userprofile-service/socialProfile/displayName",
-        "/userprofile-service/userprofile/social-profile",
-    ):
-        try:
-            resp = api.garth.get(path)
-            if resp.status_code == 200:
-                data = resp.json()
-                dn = (data.get("displayName") or data.get("userName") or
-                      data.get("username") or "")
-                if dn:
-                    api.display_name = dn
-                    log.info(f"display_name via garth {path} : {dn}")
-                    return
-        except Exception as e:
-            log.debug(f"garth {path} échoué : {e}")
+    # 1. Méthode officielle garminconnect — même appel que la lib fait lors du login
+    try:
+        prof = api.connectapi("/userprofile-service/socialProfile")
+        dn = prof.get("displayName") or prof.get("userName") or ""
+        if dn:
+            api.display_name = dn
+            log.info(f"display_name via connectapi socialProfile : {dn}")
+            return
+    except Exception as e:
+        log.debug(f"connectapi socialProfile échoué : {e}")
 
     # 2. Via les méthodes de la lib garminconnect
     for method_name in ("get_user_profile", "get_full_name"):
