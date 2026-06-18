@@ -2,20 +2,59 @@
 app/routers/users.py — Endpoints de gestion des utilisateurs.
 """
 
+import asyncio
 import json
-
+import logging
+from datetime import date, timedelta
 from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import User, get_db
+from app.db import AsyncSessionLocal, DailyMetric, User, get_db
 from app.schemas import UserCreate, UserOut
 from app.services.garmin_auth import login_and_save_token, upsert_garmin_user, encrypt_password
 from app.dependencies import require_admin
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
+
+BACKFILL_YEARS = 2  # années d'historique récupérées automatiquement après connexion
+
+
+async def _trigger_historical_backfill(user_id: int, user_name: str) -> None:
+    """
+    Déclenche automatiquement un backfill historique côté serveur (Railway)
+    dès qu'un utilisateur connecte son compte Garmin.
+    Vérifie d'abord qu'il n'a pas déjà de données — évite les doublons.
+    """
+    from app.services.collect import collect_user_range
+
+    async with AsyncSessionLocal() as db:
+        # Vérifie si des données existent déjà
+        existing = (await db.execute(
+            select(DailyMetric).where(DailyMetric.user_id == user_id).limit(1)
+        )).scalar_one_or_none()
+
+        if existing:
+            log.info(f"[BACKFILL] {user_name} — données existantes, pas de backfill nécessaire")
+            return
+
+        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user or not user.token_json:
+            return
+
+        start = date.today() - timedelta(days=365 * BACKFILL_YEARS)
+        end   = date.today() - timedelta(days=1)
+
+        log.info(f"[BACKFILL] Démarrage {user_name} : {start} → {end}")
+        try:
+            result = await collect_user_range(db, user, start, end)
+            log.info(f"[BACKFILL] Terminé {user_name} : {result}")
+        except Exception as e:
+            log.error(f"[BACKFILL] Erreur {user_name} : {e}")
 
 
 class UserTokenRegister(BaseModel):
@@ -53,6 +92,7 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         raise HTTPException(401, "Authentification Garmin échouée. Vérifier email/mot de passe.")
 
     user = (await db.execute(select(User).where(User.email == payload.email))).scalar_one()
+    asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
     return _to_out(user)
 
 
@@ -80,6 +120,7 @@ async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Dep
         garmin_email=payload.garmin_email or str(payload.email),
         garmin_password_enc=password_enc,
     )
+    asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
     return _to_out(user)
 
 
