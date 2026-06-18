@@ -124,6 +124,16 @@ async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Dep
     return _to_out(user)
 
 
+@router.post("/{name}/backfill", dependencies=[Depends(require_admin)])
+async def trigger_backfill(name: str, db: AsyncSession = Depends(get_db)):
+    """Déclenche manuellement le backfill 2 ans pour un utilisateur existant."""
+    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, f"Utilisateur '{name}' introuvable.")
+    asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
+    return {"status": "started", "user": name, "message": "Backfill 2 ans lancé en arrière-plan"}
+
+
 @router.get("/", response_model=list[UserOut], dependencies=[Depends(require_admin)])
 async def list_users(db: AsyncSession = Depends(get_db)):
     users = (await db.execute(select(User).order_by(User.created_at))).scalars().all()
