@@ -70,6 +70,17 @@ async def collect_status(job_id: str):
     return _collect_jobs.get(job_id, {"status": "unknown"})
 
 
+@router.get("/users/{name}/metrics/count")
+async def get_metrics_count(name: str, db: AsyncSession = Depends(get_db)):
+    """Retourne le nombre de jours de métriques collectés — pour la barre de progression."""
+    from sqlalchemy import func
+    user = await _get_user(db, name)
+    count = (await db.execute(
+        select(func.count()).where(DailyMetric.user_id == user.id)
+    )).scalar_one()
+    return {"days_collected": count, "days_target": 730}
+
+
 @router.get("/users/{name}/daily", response_model=list[DailyMetricOut])
 async def get_daily(
     name: str,
