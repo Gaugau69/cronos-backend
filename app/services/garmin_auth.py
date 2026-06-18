@@ -231,12 +231,14 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
         if token_data.get("version") == "0.3" and token_data.get("client_dump"):
             api = Garmin(email, "")
             api.client.loads(token_data["client_dump"])
-            # Tente d'abord l'extraction depuis le JWT (garmin_guid dans client_dump)
-            display_name = _extract_display_name_from_token(token_data) or token_data.get("display_name", "")
+            # Priorité : display_name explicitement sauvegardé dans le token
+            display_name = token_data.get("display_name") or ""
             if display_name:
                 api.display_name = display_name
                 log.info(f"display_name restauré (dumps) : {display_name}")
             else:
+                # Toujours appeler l'API Garmin pour obtenir le vrai displayName
+                # (garmin_guid du JWT ≠ UUID du profil public utilisé par les endpoints wellness)
                 _try_fetch_display_name(api, email)
             return api
 
