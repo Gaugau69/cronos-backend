@@ -104,28 +104,47 @@ def decrypt_password(encrypted: str) -> str | None:
 # ─────────────────────────────────────────────────────────────
 
 def _try_fetch_display_name(api, email: str = "") -> None:
-    """Récupère display_name depuis le profil Garmin (UUID ou pseudo)."""
-    # 1. Tente via get_user_profile
+    """Récupère le vrai displayName Garmin (UUID profil) utilisé par les endpoints wellness."""
+
+    # 1. Appel direct au social profile Garmin — c'est cet UUID que les endpoints wellness utilisent
+    for path in (
+        "/userprofile-service/socialProfile",
+        "/userprofile-service/socialProfile/displayName",
+        "/userprofile-service/userprofile/social-profile",
+    ):
+        try:
+            resp = api.garth.get(path)
+            if resp.status_code == 200:
+                data = resp.json()
+                dn = (data.get("displayName") or data.get("userName") or
+                      data.get("username") or "")
+                if dn:
+                    api.display_name = dn
+                    log.info(f"display_name via garth {path} : {dn}")
+                    return
+        except Exception as e:
+            log.debug(f"garth {path} échoué : {e}")
+
+    # 2. Via les méthodes de la lib garminconnect
     for method_name in ("get_user_profile", "get_full_name"):
         try:
             result = getattr(api, method_name)()
             if isinstance(result, dict):
                 dn = (result.get("displayName") or result.get("userName") or
-                      result.get("username") or result.get("userId") or "")
+                      result.get("username") or "")
             else:
                 dn = str(result) if result else ""
             if dn:
                 api.display_name = dn
-                log.info(f"display_name récupéré ({method_name}) : {dn}")
+                log.info(f"display_name via {method_name} : {dn}")
                 return
         except Exception as e:
             log.debug(f"{method_name} échoué : {e}")
 
-    # 2. Tente via garth (OAuth client interne)
+    # 3. Via garth.profile (parfois peuplé après login)
     try:
         profile = api.garth.profile
-        dn = (profile.get("displayName") or profile.get("username") or
-              profile.get("sub") or "")
+        dn = (profile.get("displayName") or profile.get("username") or "")
         if dn:
             api.display_name = dn
             log.info(f"display_name via garth.profile : {dn}")
@@ -133,23 +152,8 @@ def _try_fetch_display_name(api, email: str = "") -> None:
     except Exception:
         pass
 
-    # 3. Tente via get_user_summary
-    try:
-        summary = api.get_user_summary(email, "2024-01-01")
-        if isinstance(summary, dict):
-            dn = summary.get("userInfo", {}).get("displayName", "")
-            if dn:
-                api.display_name = dn
-                log.info(f"display_name via user_summary : {dn}")
-                return
-    except Exception:
-        pass
-
-    # 4. Dernier recours : username interne de l'API
-    dn = getattr(api, "username", "") or email
-    if dn:
-        api.display_name = dn
-        log.debug(f"display_name fallback : {dn}")
+    # 4. Dernier recours : garmin_guid extrait du JWT (imparfait mais mieux que email)
+    log.warning(f"display_name introuvable pour {email} — les endpoints wellness peuvent échouer")
 
 
 def _extract_display_name_from_token(token_data: dict) -> str:
