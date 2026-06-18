@@ -104,28 +104,52 @@ def decrypt_password(encrypted: str) -> str | None:
 # ─────────────────────────────────────────────────────────────
 
 def _try_fetch_display_name(api, email: str = "") -> None:
-    """Récupère display_name depuis le profil Garmin ou utilise l'email comme fallback."""
+    """Récupère display_name depuis le profil Garmin (UUID ou pseudo)."""
+    # 1. Tente via get_user_profile
+    for method_name in ("get_user_profile", "get_full_name"):
+        try:
+            result = getattr(api, method_name)()
+            if isinstance(result, dict):
+                dn = (result.get("displayName") or result.get("userName") or
+                      result.get("username") or result.get("userId") or "")
+            else:
+                dn = str(result) if result else ""
+            if dn:
+                api.display_name = dn
+                log.info(f"display_name récupéré ({method_name}) : {dn}")
+                return
+        except Exception as e:
+            log.debug(f"{method_name} échoué : {e}")
+
+    # 2. Tente via garth (OAuth client interne)
     try:
-        profile = api.get_user_profile()
-        dn = (
-            profile.get("displayName") or
-            profile.get("userName") or
-            profile.get("username") or
-            ""
-        )
+        profile = api.garth.profile
+        dn = (profile.get("displayName") or profile.get("username") or
+              profile.get("sub") or "")
         if dn:
             api.display_name = dn
-            log.info(f"display_name récupéré depuis le profil Garmin : {dn}")
+            log.info(f"display_name via garth.profile : {dn}")
             return
-    except Exception as e:
-        log.debug(f"get_user_profile échoué : {e}")
+    except Exception:
+        pass
 
-    # Fallback : utilise l'email Garmin comme display_name
-    # (résout /dailyHeartRate/None et get_steps_data errors)
-    fallback = getattr(api, "username", "") or email
-    if fallback:
-        api.display_name = fallback
-        log.info(f"display_name fallback email : {fallback}")
+    # 3. Tente via get_user_summary
+    try:
+        summary = api.get_user_summary(email, "2024-01-01")
+        if isinstance(summary, dict):
+            dn = summary.get("userInfo", {}).get("displayName", "")
+            if dn:
+                api.display_name = dn
+                log.info(f"display_name via user_summary : {dn}")
+                return
+    except Exception:
+        pass
+
+    # 4. Dernier recours : username interne de l'API
+    dn = getattr(api, "username", "") or email
+    if dn:
+        api.display_name = dn
+        log.debug(f"display_name fallback : {dn}")
 
 
 def _extract_display_name_from_token(token_data: dict) -> str:
