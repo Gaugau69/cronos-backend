@@ -263,7 +263,7 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
                 pg_insert(DailyMetric)
                 .values(**row)
                 .on_conflict_do_update(
-                    constraint="uq_user_date",
+                    constraint="uq_cronos_user_date",
                     set_=set_dict,
                 )
             )
@@ -278,7 +278,7 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
                     pg_insert(Activity)
                     .values(**act_row)
                     .on_conflict_do_update(
-                        constraint="uq_user_activity",
+                        constraint="uq_cronos_user_activity",
                         set_=act_set,
                     )
                 )
@@ -287,6 +287,13 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
             await db.commit()
 
         except Exception as e:
+            # Rollback obligatoire — sans ça, la transaction reste abortée et
+            # tous les jours suivants échouent avec InFailedSQLTransactionError
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
             if "401" in str(e) and not relogin_attempted:
                 log.warning(f"[{user.name}] 401 détecté — tentative de re-login automatique")
                 from app.services.garmin_auth import _relogin
@@ -301,7 +308,7 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
                     await _notify_token_expired(user.name, user.email)
                     return {"status": "error", "reason": "401 + re-login échoué"}
             else:
-                log.error(f"[{user.name}] Erreur collecte {current}: {e}")
+                log.debug(f"[{user.name}] Jour {current} ignoré: {type(e).__name__}")
 
         current += timedelta(days=1)
 
@@ -355,7 +362,7 @@ async def _collect_polar_range(db: AsyncSession, user: User, start: date, end: d
                 pg_insert(Activity)
                 .values(**act_row)
                 .on_conflict_do_update(
-                    constraint="uq_user_activity",
+                    constraint="uq_cronos_user_activity",
                     set_=act_set,
                 )
             )
@@ -405,7 +412,7 @@ async def _collect_withings_range(db: AsyncSession, user: User, start: date, end
                 pg_insert(Activity)
                 .values(**act_row)
                 .on_conflict_do_update(
-                    constraint="uq_user_activity",
+                    constraint="uq_cronos_user_activity",
                     set_=act_set,
                 )
             )
