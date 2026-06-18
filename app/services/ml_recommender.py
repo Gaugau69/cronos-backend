@@ -282,98 +282,82 @@ def ml_recommend(
     top_k: int = 5,
 ) -> Optional[list[dict]]:
     """
-    Tente une inférence ML. Retourne None si indisponible ou données insuffisantes.
-    Sinon retourne une liste de top_k dicts de recommandation (même format que heuristique).
+    Inférence ML via HTTP sur le service cronos-ml (CRONOS_ML_URL).
+    Retourne None si indisponible → heuristique prend le relais.
     """
-    if not _load_models():
+    import httpx, os
+
+    ml_url    = os.environ.get("CRONOS_ML_URL", "").rstrip("/")
+    ml_secret = os.environ.get("CRONOS_ML_SECRET", "")
+
+    if not ml_url:
+        logger.debug("CRONOS_ML_URL non défini — heuristique")
         return None
 
-    # Sans HRV (feature principale), le modèle ne peut pas différencier → heuristique
+    # Sans HRV, le modèle ne peut pas différencier → heuristique
     hrv_values = [getattr(m, "hrv_last_night", None) for m in metrics if getattr(m, "hrv_last_night", None)]
     if not hrv_values:
-        logger.debug("Pas de données HRV — ML ignoré, bascule heuristique")
+        logger.debug("Pas de données HRV — heuristique")
         return None
 
     try:
-        import torch
-
-        # 1. Features
         rows = _build_feature_rows(metrics, activities)
         if len(rows) < WINDOW:
-            logger.debug(f"Pas assez de jours ({len(rows)} < {WINDOW}) — ML ignoré")
             return None
 
         recent_rows = rows[-WINDOW:]
-
-        # 2. Normalisation
         stats = _load_norm_stats(user_name) or _compute_norm_stats_from_data(rows)
-        tensor_rows = [_normalize_row(r, stats) for r in recent_rows]
-        x = torch.tensor([tensor_rows], dtype=torch.float32)   # (1, 14, 12)
+        feature_rows = [_normalize_row(r, stats) for r in recent_rows]
 
-        with torch.no_grad():
-            z_jepa = _encoder(x)   # (1, 64)
-
-        # 3. Profil
-        if str(ML_DIR) not in sys.path:
-            sys.path.insert(0, str(ML_DIR))
-        from recommendation.encoders import encode_athlete_profile, encode_race_context
-        from recommendation.session_types_v2 import SESSION_CATALOGUE
-
-        profile_dict = {}
+        # Profil
+        profile_dict: dict = {}
         if profile:
             for attr in ("level", "sport_type", "years_running", "weekly_km",
                          "weekly_sessions", "long_run_km", "vo2max_estimated",
-                         "best_5k_min", "best_marathon_min", "max_weekly_km",
-                         "primary_goal", "target_distance"):
+                         "best_5k_min", "best_marathon_min", "primary_goal", "target_distance"):
                 v = getattr(profile, attr, None)
                 if v is not None:
                     profile_dict[attr] = v
 
-        x_profile = encode_athlete_profile(profile_dict)
-
-        # 4. Course
-        race_dict = None
+        # Course
+        races_list = []
         if races:
             upcoming = [r for r in races if not getattr(r, "is_completed", False)]
             if upcoming:
                 next_r = min(upcoming, key=lambda r: r.race_date)
-                days_to = (next_r.race_date - date.today()).days
-                race_dict = {
-                    "days_to_race": days_to,
+                races_list = [{
+                    "days_to_race": (next_r.race_date - date.today()).days,
                     "distance_km":  float(next_r.distance_km),
                     "elevation_m":  int(getattr(next_r, "elevation_m", 0) or 0),
-                    "goal_type":    getattr(next_r, "goal_type", "finir"),
                     "priority":     getattr(next_r, "priority", "B"),
-                }
-        x_race = encode_race_context(race_dict)
+                }]
 
-        # 5. Scores
-        with torch.no_grad():
-            scores = _scorer(z_jepa, x_profile, x_race).squeeze(0)   # (45,)
+        resp = httpx.post(
+            f"{ml_url}/predict",
+            json={"feature_rows": feature_rows, "profile": profile_dict,
+                  "races": races_list, "user_name": user_name, "top_k": top_k},
+            headers={"x-secret": ml_secret},
+            timeout=15,
+        )
 
-        # 6. Construire recommandations (ids issus de SESSION_CATALOGUE v2)
-        top_indices = torch.argsort(scores, descending=True)[:top_k].tolist()
+        if resp.status_code != 200:
+            logger.warning(f"cronos-ml /predict → {resp.status_code}")
+            return None
 
+        data = resp.json()
+        if not data.get("recommendations"):
+            return None
+
+        # Reformate pour matcher le format heuristique
         results = []
-        for rank, idx in enumerate(top_indices):
-            s = SESSION_CATALOGUE[idx]
-            results.append({
-                "id":           s.id,
-                "rank":         rank + 1,
-                "name":         s.name,
-                "description":  s.description,
-                "category":     s.category,
-                "intensity":    s.intensity,
-                "duration_min": s.duration_min,
-                "distance_km":  s.distance_km,
-                "score":        round(float(scores[idx]) * 100, 1),
-                "recovery_cost":s.recovery_cost,
-                "min_level":    s.min_level,
-                "example":      s.example_debutant,
-            })
+        for rank, rec in enumerate(data["recommendations"]):
+            rec["rank"] = rank + 1
+            rec.setdefault("min_level", 0)
+            rec.setdefault("example", rec.get("description", ""))
+            results.append(rec)
 
         return results
 
     except Exception as e:
-        logger.error(f"Inférence ML échouée : {e}", exc_info=True)
+        logger.warning(f"ML HTTP échoué ({e}) — heuristique")
         return None
