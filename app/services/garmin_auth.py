@@ -103,6 +103,23 @@ def decrypt_password(encrypted: str) -> str | None:
 # Helpers token
 # ─────────────────────────────────────────────────────────────
 
+def _try_fetch_display_name(api) -> None:
+    """Récupère display_name depuis le profil Garmin si absent du token."""
+    try:
+        profile = api.get_user_profile()
+        dn = (
+            profile.get("displayName") or
+            profile.get("userName") or
+            profile.get("username") or
+            ""
+        )
+        if dn:
+            api.display_name = dn
+            log.info(f"display_name récupéré depuis le profil Garmin : {dn}")
+    except Exception as e:
+        log.debug(f"Impossible de récupérer display_name : {e}")
+
+
 def _extract_display_name_from_token(token_data: dict) -> str:
     if token_data.get("display_name"):
         return token_data["display_name"]
@@ -161,6 +178,8 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
             if display_name:
                 api.display_name = display_name
                 log.info(f"display_name restauré : {display_name}")
+            else:
+                _try_fetch_display_name(api)
             return api
 
         if token_data.get("version") == "0.3" and token_data.get("client_dump"):
@@ -170,6 +189,8 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
             if display_name:
                 api.display_name = display_name
                 log.info(f"display_name restauré (dumps) : {display_name}")
+            else:
+                _try_fetch_display_name(api)
             return api
 
     except Exception as e:
