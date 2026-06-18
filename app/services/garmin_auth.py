@@ -156,15 +156,25 @@ def _extract_display_name_from_token(token_data: dict) -> str:
     if token_data.get("display_name"):
         return token_data["display_name"]
 
+    # di_token peut être dans token_data directement OU dans client_dump (JSON imbriqué)
     di_token = token_data.get("di_token", "")
+    if not di_token and token_data.get("client_dump"):
+        try:
+            client_data = json.loads(token_data["client_dump"])
+            di_token = client_data.get("di_token", "")
+        except Exception:
+            pass
+
     if di_token:
         try:
             payload = di_token.split(".")[1]
             payload += "=" * (4 - len(payload) % 4)
             decoded = json.loads(base64.b64decode(payload))
-            uuid = decoded.get("sub") or decoded.get("clientId") or decoded.get("clid", "")
+            # garmin_guid est l'identifiant stable du compte Garmin Connect
+            uuid = (decoded.get("garmin_guid") or decoded.get("sub") or
+                    decoded.get("clientId") or decoded.get("clid", ""))
             if uuid:
-                log.info(f"display_name extrait du JWT: {uuid}")
+                log.info(f"display_name extrait du JWT (garmin_guid): {uuid}")
                 return uuid
         except Exception as e:
             log.warning(f"Impossible d'extraire display_name du JWT: {e}")
