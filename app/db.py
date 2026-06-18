@@ -34,6 +34,17 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrations manuelles — ajoute les colonnes si elles n'existent pas
+        for col, coltype in [
+            ("temperature_c",    "FLOAT"),
+            ("precipitation_mm", "FLOAT"),
+            ("wellness_score",   "FLOAT"),
+        ]:
+            await conn.execute(
+                __import__("sqlalchemy", fromlist=["text"]).text(
+                    f"ALTER TABLE cronos_daily_metrics ADD COLUMN IF NOT EXISTS {col} {coltype}"
+                )
+            )
 
 
 # ── Tables ─────────────────────────────────────────────────────────────────
@@ -117,6 +128,13 @@ class DailyMetric(Base):
     distance_m           = Column(Float,   nullable=True)
     active_min           = Column(Integer, nullable=True)
     floors_climbed       = Column(Integer, nullable=True)
+
+    # Météo du jour (Open-Meteo, rempli automatiquement à la collecte)
+    temperature_c    = Column(Float,   nullable=True)   # température max °C
+    precipitation_mm = Column(Float,   nullable=True)   # précipitations mm
+
+    # Bien-être subjectif (0=fatigué, 0.5=normal, 1=en forme — rempli par l'athlète)
+    wellness_score   = Column(Float,   nullable=True)
 
     user = relationship("User", back_populates="daily_metrics")
 

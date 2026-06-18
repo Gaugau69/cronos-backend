@@ -171,6 +171,31 @@ _PARSER_TIMEOUT = 25  # secondes max par parser Garmin avant abandon
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
+async def _fetch_weather(lat: float, lon: float, day: date) -> dict:
+    """Météo journalière via Open-Meteo (gratuit, sans clé API, données historiques)."""
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={lat:.4f}&longitude={lon:.4f}"
+        f"&start_date={day.isoformat()}&end_date={day.isoformat()}"
+        f"&daily=temperature_2m_max,precipitation_sum"
+        f"&timezone=auto"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(url)
+            if r.status_code == 200:
+                d = r.json().get("daily", {})
+                temps  = d.get("temperature_2m_max", [None])
+                precip = d.get("precipitation_sum",  [None])
+                return {
+                    "temperature_c":    temps[0]  if temps  else None,
+                    "precipitation_mm": precip[0] if precip else None,
+                }
+    except Exception:
+        pass
+    return {}
+
+
 async def _run_parser(parser, api, day: date, timeout: float = _PARSER_TIMEOUT) -> dict:
     """Exécute un parser Garmin synchrone dans un thread avec timeout."""
     loop = asyncio.get_event_loop()
@@ -187,10 +212,33 @@ async def _run_parser(parser, api, day: date, timeout: float = _PARSER_TIMEOUT) 
         return {}
 
 
+async def _get_user_location(db: AsyncSession, user_id: int) -> tuple[float, float] | None:
+    """Retourne (lat, lng) depuis le track GPS le plus récent de l'utilisateur."""
+    from app.db import ActivityTrack
+    track = (await db.execute(
+        select(ActivityTrack)
+        .where(ActivityTrack.user_id == user_id)
+        .order_by(ActivityTrack.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if not track or not track.coordinates_json:
+        return None
+    try:
+        coords = json.loads(track.coordinates_json)
+        if coords and len(coords) > 0:
+            return float(coords[0][0]), float(coords[0][1])
+    except Exception:
+        pass
+    return None
+
+
 async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
     api = await get_api(db, user)
     if not api:
         return {"status": "error", "reason": "token invalide"}
+
+    # Récupère la localisation pour la météo (silencieux si indisponible)
+    user_location = await _get_user_location(db, user.id)
 
     days_ok = 0
     acts_ok = 0
@@ -204,6 +252,11 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
             row = {"user_id": user.id, "date": current}
             for parser in _GARMIN_PARSERS:
                 row.update(await _run_parser(parser, api, current))
+
+            # Météo Open-Meteo (silencieux si pas de localisation)
+            if user_location:
+                weather = await _fetch_weather(user_location[0], user_location[1], current)
+                row.update(weather)
 
             set_dict = _safe_upsert_row(row, ("user_id", "date"))
             await db.execute(

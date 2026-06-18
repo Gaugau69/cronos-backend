@@ -14,7 +14,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import SessionFeedback, User, get_db
+from app.db import DailyMetric, SessionFeedback, User, get_db
 from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(tags=["feedback"])
@@ -136,3 +136,64 @@ async def get_feedback_stats(
 
     result.sort(key=lambda x: x["total"], reverse=True)
     return result
+
+
+# ── Wellness subjectif ────────────────────────────────────────────────────────
+
+WELLNESS_MAP = {"fatigued": 0.0, "normal": 0.5, "great": 1.0}
+
+
+class WellnessCreate(BaseModel):
+    name:  str
+    score: str   # "fatigued" | "normal" | "great"
+    day:   date | None = None
+
+    @field_validator("score")
+    @classmethod
+    def validate_score(cls, v: str) -> str:
+        if v not in WELLNESS_MAP:
+            raise ValueError(f"score doit être parmi {list(WELLNESS_MAP.keys())}")
+        return v
+
+
+@router.post("/wellness", status_code=200)
+async def submit_wellness(
+    payload: WellnessCreate,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    """Enregistre le bien-être subjectif du jour dans DailyMetric.wellness_score."""
+    user = await require_owner(payload.name, db, caller_email)
+    day = payload.day or date.today()
+    score = WELLNESS_MAP[payload.score]
+
+    existing = (await db.execute(
+        select(DailyMetric)
+        .where(DailyMetric.user_id == user.id)
+        .where(DailyMetric.date == day)
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.wellness_score = score
+    else:
+        db.add(DailyMetric(user_id=user.id, date=day, wellness_score=score))
+
+    await db.commit()
+    return {"status": "ok", "day": day.isoformat(), "score": score}
+
+
+@router.get("/users/{name}/wellness")
+async def get_wellness(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    """Retourne le wellness_score d'aujourd'hui."""
+    user = await require_owner(name, db, caller_email)
+    today = date.today()
+    row = (await db.execute(
+        select(DailyMetric.wellness_score)
+        .where(DailyMetric.user_id == user.id)
+        .where(DailyMetric.date == today)
+    )).scalar_one_or_none()
+    return {"day": today.isoformat(), "score": row}
