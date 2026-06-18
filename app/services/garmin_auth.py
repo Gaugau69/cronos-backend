@@ -103,8 +103,8 @@ def decrypt_password(encrypted: str) -> str | None:
 # Helpers token
 # ─────────────────────────────────────────────────────────────
 
-def _try_fetch_display_name(api) -> None:
-    """Récupère display_name depuis le profil Garmin si absent du token."""
+def _try_fetch_display_name(api, email: str = "") -> None:
+    """Récupère display_name depuis le profil Garmin ou utilise l'email comme fallback."""
     try:
         profile = api.get_user_profile()
         dn = (
@@ -116,8 +116,16 @@ def _try_fetch_display_name(api) -> None:
         if dn:
             api.display_name = dn
             log.info(f"display_name récupéré depuis le profil Garmin : {dn}")
+            return
     except Exception as e:
-        log.debug(f"Impossible de récupérer display_name : {e}")
+        log.debug(f"get_user_profile échoué : {e}")
+
+    # Fallback : utilise l'email Garmin comme display_name
+    # (résout /dailyHeartRate/None et get_steps_data errors)
+    fallback = getattr(api, "username", "") or email
+    if fallback:
+        api.display_name = fallback
+        log.info(f"display_name fallback email : {fallback}")
 
 
 def _extract_display_name_from_token(token_data: dict) -> str:
@@ -179,7 +187,7 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
                 api.display_name = display_name
                 log.info(f"display_name restauré : {display_name}")
             else:
-                _try_fetch_display_name(api)
+                _try_fetch_display_name(api, email)
             return api
 
         if token_data.get("version") == "0.3" and token_data.get("client_dump"):
@@ -190,7 +198,7 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
                 api.display_name = display_name
                 log.info(f"display_name restauré (dumps) : {display_name}")
             else:
-                _try_fetch_display_name(api)
+                _try_fetch_display_name(api, email)
             return api
 
     except Exception as e:
