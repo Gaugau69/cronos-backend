@@ -294,6 +294,11 @@ def ml_recommend(
         logger.debug("CRONOS_ML_URL non défini — heuristique")
         return None
 
+    # ML désactivé tant que pas assez de feedbacks (activer avec ML_ENABLED=true dans Railway)
+    if os.environ.get("ML_ENABLED", "false").lower() != "true":
+        logger.debug("ML désactivé — heuristique (ML_ENABLED!=true)")
+        return None
+
     # Vérifie qu'on a au moins des données physiologiques (HRV ou body battery ou stress)
     has_physio = any(
         getattr(m, "hrv_last_night", None) or
