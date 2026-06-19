@@ -429,10 +429,12 @@ async def _collect_withings_range(db: AsyncSession, user: User, start: date, end
 # ─────────────────────────────────────────────────────────────
 
 async def collect_all_users_yesterday(db: AsyncSession):
-    """Cron job — collecte J-1 pour tous les users enregistrés."""
+    """Cron job — collecte J-1 pour tous les users ayant un token Garmin/Polar/Withings."""
     yesterday = date.today() - timedelta(days=1)
     two_days_ago = date.today() - timedelta(days=2)
-    users = (await db.execute(select(User))).scalars().all()
+    users = (await db.execute(
+        select(User).where(User.token_json.isnot(None))
+    )).scalars().all()
     log.info(f"Cron: {yesterday} — {len(users)} user(s)")
     for user in users:
         try:
@@ -467,8 +469,10 @@ async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
     Appelé après collect_all_users_yesterday pour rattraper les jours où le cron aurait échoué.
     """
     today = date.today()
-    users = (await db.execute(select(User))).scalars().all()
-    log.info(f"Backfill: vérification des {lookback_days} derniers jours pour {len(users)} user(s)")
+    users = (await db.execute(
+        select(User).where(User.token_json.isnot(None))
+    )).scalars().all()
+    log.info(f"Backfill: vérification des {lookback_days} derniers jours pour {len(users)} user(s) avec token")
 
     for user in users:
         try:
