@@ -294,10 +294,16 @@ def ml_recommend(
         logger.debug("CRONOS_ML_URL non défini — heuristique")
         return None
 
-    # Sans HRV, le modèle ne peut pas différencier → heuristique
-    hrv_values = [getattr(m, "hrv_last_night", None) for m in metrics if getattr(m, "hrv_last_night", None)]
-    if not hrv_values:
-        logger.debug("Pas de données HRV — heuristique")
+    # Vérifie qu'on a au moins des données physiologiques (HRV ou body battery ou stress)
+    has_physio = any(
+        getattr(m, "hrv_last_night", None) or
+        getattr(m, "body_battery_charged", None) or
+        getattr(m, "avg_stress", None) or
+        getattr(m, "sleep_score", None)
+        for m in metrics
+    )
+    if not has_physio:
+        logger.debug("Pas de données physiologiques — heuristique")
         return None
 
     try:
