@@ -137,12 +137,12 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         """Tourne dans un thread — blocking OK, n'affecte pas l'event loop."""
         try:
             from garminconnect import Garmin
-            api = Garmin(payload.email, payload.password)
-            api.garth.login(payload.email, payload.password, prompt_mfa=session.get_mfa_code)
-            session.token_json = json.dumps(api.garth.dump())
+            api = Garmin(payload.email, payload.password, prompt_mfa=session.get_mfa_code)
+            api.login()
+            session.token_json = json.dumps(api.client.dump())
             session.state = "completed"
         except Exception as e:
-            if session.state not in ("completed",):
+            if session.state not in ("mfa_required", "completed"):
                 session.state = "failed"
                 session.error = str(e)
 
