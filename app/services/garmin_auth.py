@@ -208,6 +208,7 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
         if any(k in token_data for k in ("di_token", "oauth1_token", "oauth2_token")):
             api = Garmin(email, "")
             api.client.loads(token_json)
+            _try_fetch_display_name(api, email)
             log.info(f"Token garth natif chargé pour {email}")
             return api
 
