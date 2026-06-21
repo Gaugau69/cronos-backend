@@ -85,15 +85,16 @@ async def _notification_job():
     """
     Cron job d'emails — tourne toutes les heures, envoie selon la préférence de chaque user.
     """
-    from datetime import datetime, timezone
-    from sqlalchemy import select
-    from app.db import User, NotificationPrefs
-    from app.services.email_service import send_daily_recommendation
+    try:
+        from datetime import datetime, timezone
+        from sqlalchemy import select
+        from app.db import User, NotificationPrefs
+        from app.services.email_service import send_daily_recommendation
 
-    current_hour = datetime.now(timezone.utc).hour
-    log.info(f"[NOTIF] Vérification des notifications pour l'heure UTC {current_hour}")
+        current_hour = datetime.now(timezone.utc).hour
+        log.info(f"[NOTIF] Vérification des notifications pour l'heure UTC {current_hour}")
 
-    async with AsyncSessionLocal() as db:
+        async with AsyncSessionLocal() as db:
         prefs_list = (await db.execute(
             select(NotificationPrefs, User)
             .join(User, NotificationPrefs.user_id == User.id)
@@ -120,6 +121,10 @@ async def _notification_job():
                 log.info(f"[NOTIF] Email {'envoyé' if sent else 'échoué'} → {user.email}")
             except Exception as e:
                 log.error(f"[NOTIF] Erreur pour {user.name}: {e}")
+
+    except Exception as e:
+        import traceback
+        log.error(f"[NOTIF] Exception dans _notification_job: {e}\n{traceback.format_exc()}")
 
 
 @asynccontextmanager
