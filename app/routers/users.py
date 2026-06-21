@@ -147,7 +147,18 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         except Exception as e:
             if session.state != "completed":
                 session.state = "failed"
-                session.error = str(e)
+                # Capture le HTML de la dernière réponse garth pour diagnostic
+                try:
+                    last_html = getattr(api.client, 'last_resp', None)
+                    if last_html:
+                        import re as _re
+                        title_m = _re.search(r'<title>(.+?)</title>', last_html.text or '', _re.I)
+                        title = title_m.group(1) if title_m else "no title"
+                        session.error = f"{type(e).__name__}: {e} | last title: {title}"
+                    else:
+                        session.error = f"{type(e).__name__}: {e}"
+                except Exception as inner:
+                    session.error = f"{type(e).__name__}: {e} | debug err: {inner}"
 
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _sync_login)
