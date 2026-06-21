@@ -242,10 +242,10 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
 
     days_ok = 0
     acts_ok = 0
-    current = start
+    current = end  # Part du plus récent → les données des 90 derniers jours arrivent en premier
     relogin_attempted = False
 
-    while current <= end:
+    while current >= start:
         log.info(f"[{user.name}] collecting {current}")
 
         try:
@@ -310,7 +310,7 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
             else:
                 log.debug(f"[{user.name}] Jour {current} ignoré: {type(e).__name__}")
 
-        current += timedelta(days=1)
+        current -= timedelta(days=1)
 
     return {"status": "ok", "days": days_ok, "activities": acts_ok}
 
