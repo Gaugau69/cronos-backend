@@ -95,32 +95,32 @@ async def _notification_job():
         log.info(f"[NOTIF] Vérification des notifications pour l'heure UTC {current_hour}")
 
         async with AsyncSessionLocal() as db:
-        prefs_list = (await db.execute(
-            select(NotificationPrefs, User)
-            .join(User, NotificationPrefs.user_id == User.id)
-            .where(NotificationPrefs.email_enabled == True)
-            .where(NotificationPrefs.send_hour == current_hour)
-        )).all()
+            prefs_list = (await db.execute(
+                select(NotificationPrefs, User)
+                .join(User, NotificationPrefs.user_id == User.id)
+                .where(NotificationPrefs.email_enabled == True)
+                .where(NotificationPrefs.send_hour == current_hour)
+            )).all()
 
-        import os, httpx
-        railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
-        base_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8001"
+            import os, httpx
+            railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+            base_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8001"
 
-        for prefs, user in prefs_list:
-            if not user.email:
-                continue
-            try:
-                async with httpx.AsyncClient() as client:
-                    r = await client.get(
-                        f"{base_url}/users/{user.name}/recommend",
-                        headers={"x-cronos-email": user.email or user.name},
-                        timeout=20,
-                    )
-                payload = r.json()
-                sent = send_daily_recommendation(user.email, user.name, payload)
-                log.info(f"[NOTIF] Email {'envoyé' if sent else 'échoué'} → {user.email}")
-            except Exception as e:
-                log.error(f"[NOTIF] Erreur pour {user.name}: {e}")
+            for prefs, user in prefs_list:
+                if not user.email:
+                    continue
+                try:
+                    async with httpx.AsyncClient() as client:
+                        r = await client.get(
+                            f"{base_url}/users/{user.name}/recommend",
+                            headers={"x-cronos-email": user.email or user.name},
+                            timeout=20,
+                        )
+                    payload = r.json()
+                    sent = send_daily_recommendation(user.email, user.name, payload)
+                    log.info(f"[NOTIF] Email {'envoyé' if sent else 'échoué'} → {user.email}")
+                except Exception as e:
+                    log.error(f"[NOTIF] Erreur pour {user.name}: {e}")
 
     except Exception as e:
         import traceback
