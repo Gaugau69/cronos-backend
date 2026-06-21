@@ -178,7 +178,7 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         )
         asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
         _mfa_sessions.pop(session_id, None)
-        return JSONResponse(status_code=201, content=_to_out(user).model_dump())
+        return JSONResponse(status_code=201, content=_to_out(user).model_dump(mode='json'))
 
     if session.state == "mfa_required":
         return JSONResponse(status_code=202, content={"mfa_required": True, "session_id": session_id})
@@ -212,7 +212,7 @@ async def verify_mfa(payload: MFAVerify, db: AsyncSession = Depends(get_db)):
                 )
                 asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
                 _mfa_sessions.pop(payload.session_id, None)
-                return JSONResponse(status_code=201, content=_to_out(user).model_dump())
+                return JSONResponse(status_code=201, content=_to_out(user).model_dump(mode='json'))
             except Exception as save_err:
                 log.error(f"[MFA verify] save error: {save_err}")
                 raise HTTPException(500, f"Login OK mais sauvegarde échouée : {save_err}")
