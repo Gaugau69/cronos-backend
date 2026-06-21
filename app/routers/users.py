@@ -137,8 +137,11 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         """Tourne dans un thread — blocking OK, n'affecte pas l'event loop."""
         try:
             from garminconnect import Garmin
-            api = Garmin(payload.email, payload.password, prompt_mfa=session.get_mfa_code)
-            api.login()
+            import garth
+            # On appelle client.login() directement pour éviter le chargement
+            # de profil (_load_user_data) qui rallonge le délai après MFA
+            api = Garmin(payload.email, payload.password)
+            api.client.login(payload.email, payload.password, prompt_mfa=session.get_mfa_code)
             session.token_json = json.dumps(api.client.dump())
             session.state = "completed"
         except Exception as e:
@@ -185,8 +188,8 @@ async def verify_mfa(payload: MFAVerify, db: AsyncSession = Depends(get_db)):
     session.otp_holder.append(payload.otp_code.strip())
     session.otp_event.set()
 
-    # Attend la fin du login (max 30s)
-    for _ in range(60):
+    # Attend la fin du login (max 90s)
+    for _ in range(180):
         await asyncio.sleep(0.5)
         if session.state == "completed":
             password_enc = encrypt_password(session.garmin_password)
