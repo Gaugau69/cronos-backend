@@ -145,7 +145,7 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
             session.token_json = json.dumps(api.client.dump())
             session.state = "completed"
         except Exception as e:
-            if session.state not in ("mfa_required", "completed"):
+            if session.state != "completed":
                 session.state = "failed"
                 session.error = str(e)
 
