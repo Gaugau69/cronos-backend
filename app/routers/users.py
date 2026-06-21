@@ -202,8 +202,10 @@ async def verify_mfa(payload: MFAVerify, db: AsyncSession = Depends(get_db)):
             _mfa_sessions.pop(payload.session_id, None)
             return JSONResponse(status_code=201, content=_to_out(user).model_dump())
         if session.state == "failed":
+            err = session.error or "Code MFA incorrect."
             _mfa_sessions.pop(payload.session_id, None)
-            raise HTTPException(401, session.error or "Code MFA incorrect.")
+            log.error(f"[MFA] verify failed: {err}")
+            raise HTTPException(401, f"MFA échoué : {err}")
 
     raise HTTPException(408, "Timeout — le login n'a pas abouti dans les 30 secondes.")
 
