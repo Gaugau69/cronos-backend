@@ -203,15 +203,19 @@ async def verify_mfa(payload: MFAVerify, db: AsyncSession = Depends(get_db)):
     for _ in range(180):
         await asyncio.sleep(0.5)
         if session.state == "completed":
-            password_enc = encrypt_password(session.garmin_password)
-            user = await upsert_garmin_user(
-                db, garmin_username=session.name, email=session.email,
-                token_json=session.token_json, garmin_email=session.garmin_email,
-                garmin_password_enc=password_enc,
-            )
-            asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
-            _mfa_sessions.pop(payload.session_id, None)
-            return JSONResponse(status_code=201, content=_to_out(user).model_dump())
+            try:
+                password_enc = encrypt_password(session.garmin_password)
+                user = await upsert_garmin_user(
+                    db, garmin_username=session.name, email=session.email,
+                    token_json=session.token_json, garmin_email=session.garmin_email,
+                    garmin_password_enc=password_enc,
+                )
+                asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
+                _mfa_sessions.pop(payload.session_id, None)
+                return JSONResponse(status_code=201, content=_to_out(user).model_dump())
+            except Exception as save_err:
+                log.error(f"[MFA verify] save error: {save_err}")
+                raise HTTPException(500, f"Login OK mais sauvegarde échouée : {save_err}")
         if session.state == "failed":
             err = session.error or "Code MFA incorrect."
             _mfa_sessions.pop(payload.session_id, None)
