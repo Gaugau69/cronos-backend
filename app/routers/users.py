@@ -142,7 +142,7 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
             # de profil (_load_user_data) qui rallonge le délai après MFA
             api = Garmin(payload.email, payload.password)
             api.client.login(payload.email, payload.password, prompt_mfa=session.get_mfa_code)
-            session.token_json = json.dumps(api.client.dump())
+            session.token_json = api.client.dumps()  # garth 0.4.46 : dumps() retourne str, dump(path) écrit sur disque
             session.state = "completed"
         except Exception as e:
             if session.state != "completed":

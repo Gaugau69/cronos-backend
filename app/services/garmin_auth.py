@@ -178,6 +178,11 @@ def _extract_display_name_from_token(token_data: dict) -> str:
 
 
 def _dump_token(api: Garmin) -> str:
+    # garth 0.4.46: dumps() retourne str, dump(path) écrit sur disque
+    try:
+        return api.client.dumps()
+    except Exception:
+        pass
     try:
         return json.dumps(api.garth.dump())
     except AttributeError:
