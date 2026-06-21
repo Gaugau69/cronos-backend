@@ -147,18 +147,8 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         except Exception as e:
             if session.state != "completed":
                 session.state = "failed"
-                # Capture le HTML de la dernière réponse garth pour diagnostic
-                try:
-                    last_html = getattr(api.client, 'last_resp', None)
-                    if last_html:
-                        import re as _re
-                        title_m = _re.search(r'<title>(.+?)</title>', last_html.text or '', _re.I)
-                        title = title_m.group(1) if title_m else "no title"
-                        session.error = f"{type(e).__name__}: {e} | last title: {title}"
-                    else:
-                        session.error = f"{type(e).__name__}: {e}"
-                except Exception as inner:
-                    session.error = f"{type(e).__name__}: {e} | debug err: {inner}"
+                log.error(f"[Garmin login] {payload.email}: {e}")
+                session.error = "Identifiants incorrects ou compte temporairement bloqué par Garmin."
 
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _sync_login)
@@ -184,7 +174,7 @@ async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_db))
         return JSONResponse(status_code=202, content={"mfa_required": True, "session_id": session_id})
 
     _mfa_sessions.pop(session_id, None)
-    raise HTTPException(401, session.error or "Authentification Garmin échouée. Vérifier email/mot de passe.")
+    raise HTTPException(401, session.error or "Email ou mot de passe Garmin Connect incorrect.")
 
 
 @router.post("/verify-mfa", status_code=201)
@@ -215,14 +205,13 @@ async def verify_mfa(payload: MFAVerify, db: AsyncSession = Depends(get_db)):
                 return JSONResponse(status_code=201, content=_to_out(user).model_dump(mode='json'))
             except Exception as save_err:
                 log.error(f"[MFA verify] save error: {save_err}")
-                raise HTTPException(500, f"Login OK mais sauvegarde échouée : {save_err}")
+                raise HTTPException(500, "Connexion réussie mais une erreur est survenue. Réessaie dans quelques secondes.")
         if session.state == "failed":
-            err = session.error or "Code MFA incorrect."
             _mfa_sessions.pop(payload.session_id, None)
-            log.error(f"[MFA] verify failed: {err}")
-            raise HTTPException(401, f"MFA échoué : {err}")
+            log.error(f"[MFA] verify failed: {session.error}")
+            raise HTTPException(401, session.error or "Code incorrect. Vérifie ton email Garmin Connect et réessaie.")
 
-    raise HTTPException(408, "Timeout — le login n'a pas abouti dans les 30 secondes.")
+    raise HTTPException(408, "La vérification a pris trop de temps. Recommence depuis le début.")
 
 
 @router.post("/register-token", response_model=UserOut, status_code=201)
