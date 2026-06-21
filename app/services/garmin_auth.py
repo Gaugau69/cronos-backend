@@ -204,6 +204,13 @@ def _load_api(token_json: str, email: str) -> Garmin | None:
     try:
         token_data = json.loads(token_json)
 
+        # Format garth 0.4.46 : client.dumps() → oauth1_token / oauth2_token
+        if "oauth1_token" in token_data or "oauth2_token" in token_data:
+            api = Garmin(email, "")
+            api.client.loads(token_json)
+            log.info(f"Token garth natif chargé pour {email}")
+            return api
+
         if "version" not in token_data:
             api = Garmin(email, "")
             api.login(token_data)
