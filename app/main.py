@@ -52,34 +52,6 @@ async def _daily_job():
     log.info("=== CRON END ===")
 
 
-async def _weekly_retrain_job():
-    """
-    Cron job hebdomadaire — lundi 04:00 UTC.
-    Appelle le service cronos-ml pour déclencher le réentraînement des modèles.
-    """
-    import os
-    import httpx
-
-    ml_url = os.environ.get("CRONOS_ML_URL", "").rstrip("/")
-    ml_secret = os.environ.get("CRONOS_ML_SECRET", "")
-    if not ml_url:
-        log.warning("[RETRAIN] CRONOS_ML_URL non défini — réentraînement ignoré")
-        return
-
-    log.info("[RETRAIN] Déclenchement du réentraînement hebdomadaire")
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                f"{ml_url}/retrain",
-                headers={"X-Secret": ml_secret},
-            )
-        if r.status_code == 200:
-            log.info("[RETRAIN] Réentraînement lancé avec succès")
-        else:
-            log.error(f"[RETRAIN] Erreur {r.status_code}: {r.text}")
-    except Exception as e:
-        log.error(f"[RETRAIN] Impossible de contacter cronos-ml: {e}")
-
 
 async def _notification_job():
     """
@@ -148,14 +120,8 @@ async def lifespan(app: FastAPI):
         id="hourly_notifications",
         replace_existing=True,
     )
-    scheduler.add_job(
-        _weekly_retrain_job,
-        CronTrigger(day_of_week="mon", hour=4, minute=0, timezone="UTC"),
-        id="weekly_retrain",
-        replace_existing=True,
-    )
     scheduler.start()
-    log.info(f"✓ Cron démarré — collecte à {settings.collect_hour:02d}:{settings.collect_minute:02d} UTC | notifications toutes les heures | réentraînement ML lundi 04:00 UTC")
+    log.info(f"✓ Cron démarré — collecte à {settings.collect_hour:02d}:{settings.collect_minute:02d} UTC | notifications toutes les heures")
 
     yield
 
