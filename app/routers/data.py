@@ -81,6 +81,13 @@ async def get_metrics_count(name: str, db: AsyncSession = Depends(get_db)):
     return {"days_collected": count, "days_target": 730}
 
 
+@router.get("/users/{name}/backfill-status")
+async def get_backfill_status(name: str):
+    """Retourne la progression du backfill en cours pour cet utilisateur."""
+    from app.services.collect import get_backfill_progress
+    return get_backfill_progress(name)
+
+
 @router.get("/users/{name}/daily", response_model=list[DailyMetricOut])
 async def get_daily(
     name: str,

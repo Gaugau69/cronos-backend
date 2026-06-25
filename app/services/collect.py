@@ -29,6 +29,12 @@ from app.services.withings_parse import collect_activities_withings, collect_day
 
 log = logging.getLogger(__name__)
 
+# Tracker de progression du backfill — { user_name: { days_scanned, days_target, running } }
+_backfill_progress: dict = {}
+
+def get_backfill_progress(user_name: str) -> dict:
+    return _backfill_progress.get(user_name, {"running": False, "days_scanned": 0, "days_target": 90})
+
 _GARMIN_PARSERS = [
     parse_sleep, parse_heart_rate, parse_hrv,
     parse_stress, parse_steps, parse_body_battery, parse_stats,
@@ -244,6 +250,9 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
     acts_ok = 0
     current = end  # Part du plus récent → les données des 90 derniers jours arrivent en premier
     relogin_attempted = False
+    days_target = max(1, (end - start).days + 1)
+    days_scanned = 0
+    _backfill_progress[user.name] = {"running": True, "days_scanned": 0, "days_target": days_target}
 
     while current >= start:
         log.info(f"[{user.name}] collecting {current}")
@@ -310,8 +319,11 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
             else:
                 log.debug(f"[{user.name}] Jour {current} ignoré: {type(e).__name__}")
 
+        days_scanned += 1
+        _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}
         current -= timedelta(days=1)
 
+    _backfill_progress[user.name] = {"running": False, "days_scanned": days_scanned, "days_target": days_target}
     return {"status": "ok", "days": days_ok, "activities": acts_ok}
 
 
