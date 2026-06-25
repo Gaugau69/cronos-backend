@@ -88,6 +88,49 @@ async def get_backfill_status(name: str):
     return get_backfill_progress(name)
 
 
+@router.post("/races")
+async def create_race(race: dict, db: AsyncSession = Depends(get_db)):
+    """Crée une course planifiée — appelé depuis KAIROS (contourne le CORS pf-hub)."""
+    from app.db import PlannedRace
+    from datetime import date as date_type
+    user = await _get_user(db, str(race.get("user_name", "")))
+    new_race = PlannedRace(
+        user_id=user.id,
+        race_name=race["race_name"],
+        race_date=date_type.fromisoformat(race["race_date"]),
+        distance_km=float(race["distance_km"]),
+        race_type=race.get("race_type"),
+        elevation_m=race.get("elevation_m"),
+        priority=race.get("priority", "B"),
+    )
+    db.add(new_race)
+    await db.commit()
+    await db.refresh(new_race)
+    return {"id": new_race.id, "race_name": new_race.race_name, "race_date": str(new_race.race_date)}
+
+
+@router.get("/races/{user_name}")
+async def list_races(user_name: str, db: AsyncSession = Depends(get_db)):
+    """Liste les courses planifiées d'un utilisateur."""
+    from app.db import PlannedRace
+    user = await _get_user(db, user_name)
+    result = await db.execute(select(PlannedRace).where(PlannedRace.user_id == user.id).order_by(PlannedRace.race_date))
+    races = result.scalars().all()
+    return [{"id": r.id, "race_name": r.race_name, "race_date": str(r.race_date), "distance_km": r.distance_km, "elevation_m": r.elevation_m, "priority": r.priority, "race_type": r.race_type} for r in races]
+
+
+@router.delete("/races/{race_id}")
+async def delete_race_cronos(race_id: int, user_name: str, db: AsyncSession = Depends(get_db)):
+    """Supprime une course planifiée."""
+    from app.db import PlannedRace
+    user = await _get_user(db, user_name)
+    race = await db.get(PlannedRace, race_id)
+    if race and race.user_id == user.id:
+        await db.delete(race)
+        await db.commit()
+    return {"ok": True}
+
+
 @router.get("/users/{name}/daily", response_model=list[DailyMetricOut])
 async def get_daily(
     name: str,
