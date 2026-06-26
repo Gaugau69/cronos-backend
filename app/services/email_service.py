@@ -137,7 +137,9 @@ def send_daily_recommendation(
         return False
 
     try:
-        subject = f"CRONOS · Tes séances du {payload.get('date','aujourd\'hui')} · {payload.get('recovery',{}).get('level','—')}"
+        _date = payload.get("date", "aujourd'hui")
+        _level = payload.get("recovery", {}).get("level", "—")
+        subject = f"CRONOS · Tes séances du {_date} · {_level}"
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
