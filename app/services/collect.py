@@ -214,6 +214,8 @@ async def _run_parser(parser, api, day: date, timeout: float = _PARSER_TIMEOUT) 
         log.warning(f"Timeout parser {parser.__name__} pour {day} — données ignorées")
         return {}
     except Exception as e:
+        if "401" in str(e):
+            raise
         log.debug(f"Erreur parser {parser.__name__} pour {day}: {e}")
         return {}
 
