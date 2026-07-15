@@ -87,18 +87,14 @@ async def send_test_notification(
     if not user.email:
         raise HTTPException(400, "Pas d'email enregistré pour cet utilisateur.")
 
-    # Génère les recommandations fraîches
-    import os, httpx
-    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
-    base_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8001"
+    # Génère les recommandations fraîches en appelant la logique directement
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(
-                f"{base_url}/users/{name}/recommend",
-                headers={"x-cronos-email": user.email},
-                timeout=15,
-            )
-        payload = r.json()
+        from app.routers.data import recommend_sessions
+        payload = await recommend_sessions(
+            name=name, top_k=5, refresh=False, db=db, caller_email=user.email
+        )
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(503, "Impossible de récupérer les recommandations.")
 
