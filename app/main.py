@@ -129,6 +129,8 @@ app = FastAPI(title="CRONOS Backend", version="0.1.0", lifespan=lifespan)
 app.include_router(users.router)
 app.include_router(data.router)
 app.include_router(polar.router)
+from app.routers import coros as coros_router
+app.include_router(coros_router.router)
 app.include_router(withings.router)
 app.include_router(profile.router)
 app.include_router(session_history_router)

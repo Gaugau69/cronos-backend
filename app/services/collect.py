@@ -1,7 +1,7 @@
 """
 app/services/collect.py — Orchestration de la collecte et upsert en DB.
 
-Supporte Garmin, Polar et Withings — détecte automatiquement le provider depuis le token.
+Supporte Garmin, Polar, Withings et COROS — détecte automatiquement le provider depuis le token.
 """
 
 import asyncio
@@ -26,6 +26,8 @@ from app.services.polar_auth import get_polar_api_headers
 from app.services.polar_parse import collect_activities_polar, collect_day_polar
 from app.services.withings_auth import get_withings_headers, get_withings_userid
 from app.services.withings_parse import collect_activities_withings, collect_day_withings
+from app.services.coros_auth import get_coros_auth
+from app.services.coros_parse import collect_activities_coros, collect_day_coros
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +66,8 @@ async def collect_user_range(db: AsyncSession, user: User, start: date, end: dat
         return await _collect_polar_range(db, user, start, end)
     elif provider == "withings":
         return await _collect_withings_range(db, user, start, end)
+    elif provider == "coros":
+        return await _collect_coros_range(db, user, start, end)
     else:
         return await _collect_garmin_range(db, user, start, end)
 
@@ -379,6 +383,50 @@ async def _collect_polar_range(db: AsyncSession, user: User, start: date, end: d
                     constraint="uq_cronos_user_activity",
                     set_=act_set,
                 )
+            )
+            acts_ok += 1
+
+        await db.commit()
+        current += timedelta(days=1)
+
+    return {"status": "ok", "days": days_ok, "activities": acts_ok}
+
+
+# ─────────────────────────────────────────────────────────────
+# COROS
+# ─────────────────────────────────────────────────────────────
+
+async def _collect_coros_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
+    try:
+        access_token, user_id, region = await get_coros_auth(user, db)
+    except Exception as e:
+        return {"status": "error", "reason": f"auth COROS: {e}"}
+
+    days_ok = 0
+    acts_ok = 0
+    current = start
+
+    while current <= end:
+        log.info(f"[{user.name}] collecting COROS {current}")
+
+        metrics = await collect_day_coros(access_token, user_id, current, region)
+        row = {"user_id": user.id, "date": current, **metrics}
+        set_dict = _safe_upsert_row(row, ("user_id", "date"))
+        await db.execute(
+            pg_insert(DailyMetric)
+            .values(**row)
+            .on_conflict_do_update(constraint="uq_user_date", set_=set_dict)
+        )
+        days_ok += 1
+
+        activities = await collect_activities_coros(access_token, user_id, current, region)
+        for act in activities:
+            act_row = {"user_id": user.id, "date": current, **act}
+            act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+            await db.execute(
+                pg_insert(Activity)
+                .values(**act_row)
+                .on_conflict_do_update(constraint="uq_cronos_user_activity", set_=act_set)
             )
             acts_ok += 1
 
