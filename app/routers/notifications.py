@@ -100,8 +100,9 @@ async def send_test_notification(
     except Exception as e:
         raise HTTPException(503, f"Impossible de récupérer les recommandations: {e}")
 
-    sent = send_daily_recommendation(user.email, name, payload)
-    if not sent:
-        raise HTTPException(500, "Échec de l'envoi. Vérifiez la configuration SMTP.")
+    try:
+        send_daily_recommendation(user.email, name, payload)
+    except RuntimeError as e:
+        raise HTTPException(500, f"Échec SMTP: {e}")
 
     return {"status": "sent", "to": user.email}

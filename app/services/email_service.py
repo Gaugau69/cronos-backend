@@ -159,4 +159,4 @@ def send_daily_recommendation(
 
     except Exception as e:
         logger.error(f"Échec envoi email à {to_email}: {e}")
-        return False
+        raise RuntimeError(str(e)) from e
