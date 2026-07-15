@@ -74,21 +74,17 @@ async def _notification_job():
                 .where(NotificationPrefs.send_hour == current_hour)
             )).all()
 
-            import os, httpx
-            railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
-            base_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8001"
+            from app.routers.data import recommend_sessions
 
             for prefs, user in prefs_list:
                 if not user.email:
                     continue
                 try:
-                    async with httpx.AsyncClient() as client:
-                        r = await client.get(
-                            f"{base_url}/users/{user.name}/recommend",
-                            headers={"x-cronos-email": user.email or user.name},
-                            timeout=20,
+                    async with AsyncSessionLocal() as fresh_db:
+                        payload = await recommend_sessions(
+                            name=user.name, top_k=5, refresh=False,
+                            db=fresh_db, caller_email=user.email,
                         )
-                    payload = r.json()
                     sent = send_daily_recommendation(user.email, user.name, payload)
                     log.info(f"[NOTIF] Email {'envoyé' if sent else 'échoué'} → {user.email}")
                 except Exception as e:
