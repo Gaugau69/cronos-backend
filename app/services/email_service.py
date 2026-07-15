@@ -104,10 +104,20 @@ def _build_html(user_name: str, payload: dict) -> str:
     </div>
 
     <!-- CTA -->
-    <div style="text-align:center;margin-bottom:32px">
+    <div style="text-align:center;margin-bottom:24px">
       <a href="https://peakflow-technologies.com/cronos" style="display:inline-block;background:#10B981;color:#000;padding:12px 32px;border-radius:6px;font-weight:700;font-size:14px;text-decoration:none;letter-spacing:0.05em">
         VOIR MA SÉANCE →
       </a>
+    </div>
+
+    <!-- Feedback nudge -->
+    <div style="background:#0f0f2e;border:1px solid #1e2040;border-radius:8px;padding:16px;margin-bottom:32px;text-align:center">
+      <p style="color:#9CA3AF;font-size:13px;margin:0 0 12px">Tu as fait la séance d'hier ?</p>
+      <div style="display:inline-flex;gap:12px">
+        <a href="https://peakflow-technologies.com/cronos" style="background:#1e2040;color:#10B981;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none">👍 Oui, top</a>
+        <a href="https://peakflow-technologies.com/cronos" style="background:#1e2040;color:#9CA3AF;padding:8px 20px;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none">👎 Pas adaptée</a>
+      </div>
+      <p style="color:#4B5563;font-size:11px;margin:10px 0 0">Ton retour améliore les recommandations IA</p>
     </div>
 
     <!-- Footer -->
