@@ -88,11 +88,13 @@ async def send_test_notification(
         raise HTTPException(400, "Pas d'email enregistré pour cet utilisateur.")
 
     # Génère les recommandations fraîches
-    import httpx
+    import os, httpx
+    railway_domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+    base_url = f"https://{railway_domain}" if railway_domain else "http://localhost:8001"
     try:
         async with httpx.AsyncClient() as client:
             r = await client.get(
-                f"http://localhost:8001/users/{name}/recommend",
+                f"{base_url}/users/{name}/recommend",
                 headers={"x-cronos-email": user.email},
                 timeout=15,
             )
