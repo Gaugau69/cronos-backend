@@ -105,14 +105,14 @@ def _build_html(user_name: str, payload: dict) -> str:
 
     <!-- CTA -->
     <div style="text-align:center;margin-bottom:32px">
-      <a href="https://peakflow.ai/cronos" style="display:inline-block;background:#10B981;color:#000;padding:12px 32px;border-radius:6px;font-weight:700;font-size:14px;text-decoration:none;letter-spacing:0.05em">
+      <a href="https://peakflow-technologies.com/cronos" style="display:inline-block;background:#10B981;color:#000;padding:12px 32px;border-radius:6px;font-weight:700;font-size:14px;text-decoration:none;letter-spacing:0.05em">
         VOIR MA SÉANCE →
       </a>
     </div>
 
     <!-- Footer -->
     <p style="color:#4B5563;font-size:11px;text-align:center;margin:0">
-      CRONOS · Peakflow Technologies · <a href="https://peakflow.ai/settings" style="color:#6B7280">Se désabonner</a>
+      CRONOS · Peakflow Technologies · <a href="https://peakflow-technologies.com/settings" style="color:#6B7280">Se désabonner</a>
     </p>
   </div>
 </body>
