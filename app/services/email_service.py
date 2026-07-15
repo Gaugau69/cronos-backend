@@ -1,14 +1,10 @@
 """
-app/services/email_service.py — Envoi des emails de recommandation quotidiens.
+app/services/email_service.py — Envoi des emails de recommandation quotidiens via Resend.
 
-Utilise SMTP standard (Gmail, Infomaniak, etc.).
-Variables d'env : SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
+Variables d'env : RESEND_API_KEY, EMAIL_FROM (optionnel)
 """
 
 import logging
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 from app.config import settings
 
@@ -129,30 +125,27 @@ def send_daily_recommendation(
     payload: dict,
 ) -> bool:
     """
-    Envoie l'email quotidien de recommandation.
+    Envoie l'email quotidien de recommandation via Resend.
     Retourne True si envoyé, False en cas d'erreur.
     """
-    if not settings.smtp_user or not settings.smtp_password:
-        logger.debug("SMTP non configuré — email ignoré")
+    if not settings.resend_api_key:
+        logger.debug("RESEND_API_KEY non configuré — email ignoré")
         return False
 
     try:
-        _date = payload.get("date", "aujourd'hui")
+        import resend
+        resend.api_key = settings.resend_api_key
+
+        _date  = payload.get("date", "aujourd'hui")
         _level = payload.get("recovery", {}).get("level", "—")
         subject = f"CRONOS · Tes séances du {_date} · {_level}"
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = settings.smtp_from
-        msg["To"]      = to_email
-
-        html = _build_html(user_name, payload)
-        msg.attach(MIMEText(html, "html"))
-
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.sendmail(settings.smtp_from, [to_email], msg.as_string())
+        resend.Emails.send({
+            "from":    settings.email_from,
+            "to":      [to_email],
+            "subject": subject,
+            "html":    _build_html(user_name, payload),
+        })
 
         logger.info(f"Email envoyé à {to_email}")
         return True

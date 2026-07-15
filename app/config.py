@@ -22,7 +22,11 @@ class Settings(BaseSettings):
     # ML — chemin absolu vers cronos-ml/ (optionnel, auto-détecté sinon)
     cronos_ml_dir: str = ""
 
-    # Email notifications
+    # Email notifications (Resend API)
+    resend_api_key: str = ""
+    email_from: str = "CRONOS Peakflow <no-reply@peakflow-technologies.com>"
+
+    # Legacy SMTP (non utilisé — Railway bloque les ports SMTP)
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str = ""
