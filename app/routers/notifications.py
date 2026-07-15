@@ -87,16 +87,18 @@ async def send_test_notification(
     if not user.email:
         raise HTTPException(400, "Pas d'email enregistré pour cet utilisateur.")
 
-    # Génère les recommandations fraîches en appelant la logique directement
+    # Génère les recommandations fraîches avec une session DB indépendante
     try:
+        from app.db import AsyncSessionLocal
         from app.routers.data import recommend_sessions
-        payload = await recommend_sessions(
-            name=name, top_k=5, refresh=False, db=db, caller_email=user.email
-        )
+        async with AsyncSessionLocal() as fresh_db:
+            payload = await recommend_sessions(
+                name=name, top_k=5, refresh=False, db=fresh_db, caller_email=user.email
+            )
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(503, "Impossible de récupérer les recommandations.")
+    except Exception as e:
+        raise HTTPException(503, f"Impossible de récupérer les recommandations: {e}")
 
     sent = send_daily_recommendation(user.email, name, payload)
     if not sent:
