@@ -26,7 +26,7 @@ def get_withings_auth_url(state: str) -> str:
         "response_type": "code",
         "client_id":     settings.withings_client_id,
         "redirect_uri":  settings.withings_redirect_uri,
-        "scope":         "user.activity,user.sleepevents,user.metrics,user.heartrate",
+        "scope":         "user.activity,user.sleepevents,user.metrics",
         "state":         state,
     }
     return f"{WITHINGS_AUTH_URL}?{urlencode(params)}"
