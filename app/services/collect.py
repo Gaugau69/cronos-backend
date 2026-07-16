@@ -149,7 +149,7 @@ async def _notify_watch_not_worn(name: str, email: str):
         Pense à la porter la nuit pour que tes recommandations restent précises !
       </p>
       <p style="margin-bottom: 32px;">
-        <a href="https://web-production-3668.up.railway.app/cronos"
+        <a href="https://peakflow-technologies.com/cronos"
            style="background: #10B981; color: #060d0a; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
           Voir mes recommandations →
         </a>

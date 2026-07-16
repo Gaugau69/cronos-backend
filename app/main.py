@@ -85,6 +85,10 @@ async def _notification_job():
                             name=user.name, top_k=5, refresh=False,
                             db=fresh_db, caller_email=user.email,
                         )
+                    # Ne pas envoyer si pas de données (score None = montre non portée)
+                    if payload.get("recovery", {}).get("score") is None:
+                        log.info(f"[NOTIF] Skip {user.email} — pas de données (email alerte déjà envoyé)")
+                        continue
                     sent = send_daily_recommendation(user.email, user.name, payload)
                     log.info(f"[NOTIF] Email {'envoyé' if sent else 'échoué'} → {user.email}")
                 except Exception as e:
