@@ -78,6 +78,13 @@ async def polar_callback(
         return HTMLResponse(_error_page("Erreur lors de la sauvegarde."))
 
     log.info(f"✓ Polar connecté (peakflow: {peakflow_email}, polar: {email})")
+
+    user = (await db.execute(select(User).where(User.email == peakflow_email))).scalar_one_or_none()
+    if user:
+        import asyncio
+        from app.routers.users import _trigger_historical_backfill
+        asyncio.create_task(_trigger_historical_backfill(user.id, user.name))
+
     return HTMLResponse(_success_page(peakflow_email))
 
 
