@@ -369,7 +369,7 @@ async def _collect_polar_range(db: AsyncSession, user: User, start: date, end: d
             pg_insert(DailyMetric)
             .values(**row)
             .on_conflict_do_update(
-                constraint="uq_user_date",
+                index_elements=["user_id", "date"],
                 set_=set_dict,
             )
         )
@@ -421,7 +421,7 @@ async def _collect_coros_range(db: AsyncSession, user: User, start: date, end: d
         await db.execute(
             pg_insert(DailyMetric)
             .values(**row)
-            .on_conflict_do_update(constraint="uq_user_date", set_=set_dict)
+            .on_conflict_do_update(index_elements=["user_id", "date"], set_=set_dict)
         )
         days_ok += 1
 
@@ -469,7 +469,7 @@ async def _collect_withings_range(db: AsyncSession, user: User, start: date, end
             pg_insert(DailyMetric)
             .values(**row)
             .on_conflict_do_update(
-                constraint="uq_user_date",
+                index_elements=["user_id", "date"],
                 set_=set_dict,
             )
         )
