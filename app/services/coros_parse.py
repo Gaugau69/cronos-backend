@@ -48,12 +48,19 @@ async def _get(
         return None
 
 
+def _coros_ts_to_seconds(ts: int) -> float:
+    """Détecte le format du timestamp COROS et retourne des secondes Unix.
+    COROS utilise centisecondes sur certains endpoints, secondes sur d'autres."""
+    if ts > 1e11:   # centisecondes (ex: 175_000_000_000)
+        return ts / 100
+    return float(ts)  # secondes
+
+
 def _coros_ts_to_iso(ts: int | None) -> str | None:
-    """Convertit un timestamp COROS (centisecondes depuis epoch) en ISO string."""
     if not ts:
         return None
     try:
-        return datetime.fromtimestamp(ts / 100, tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(_coros_ts_to_seconds(ts), tz=timezone.utc).isoformat()
     except Exception:
         return None
 
@@ -146,7 +153,7 @@ async def collect_activities_coros(
 
             # Vérifier que l'activité est bien du bon jour
             if start_ts:
-                act_date = datetime.fromtimestamp(start_ts / 100, tz=timezone.utc).date()
+                act_date = datetime.fromtimestamp(_coros_ts_to_seconds(start_ts), tz=timezone.utc).date()
                 if act_date != target_date:
                     continue
 
