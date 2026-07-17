@@ -87,7 +87,7 @@ async def save_coros_token(
             "token_timestamp": int(time.time()),
         })
         await db.execute(
-            update(User).where(User.email == peakflow_email).values(token_json=token_json)
+            update(User).where(User.email == peakflow_email).values(token_json=token_json, name=peakflow_email)
         )
         await db.commit()
         log.info(f"✓ Token COROS sauvegardé pour {peakflow_email}")
