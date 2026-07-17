@@ -108,15 +108,15 @@ async def save_polar_token(
         if existing:
             await db.execute(
                 update(User).where(User.email == peakflow_email)
-                .values(token_json=token_json, garmin_email=polar_email)
+                .values(token_json=token_json, watch_email=polar_email)
             )
         else:
             stmt = (
                 pg_insert(User)
-                .values(name=peakflow_email, email=peakflow_email, token_json=token_json, garmin_email=polar_email)
+                .values(name=peakflow_email, email=peakflow_email, token_json=token_json, watch_email=polar_email)
                 .on_conflict_do_update(
                     index_elements=["email"],
-                    set_={"token_json": token_json, "garmin_email": polar_email},
+                    set_={"watch_token_json": token_json, "watch_email": polar_email},
                 )
             )
             await db.execute(stmt)

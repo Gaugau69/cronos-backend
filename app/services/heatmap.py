@@ -87,9 +87,9 @@ async def fetch_and_store_tracks(
     from app.services.garmin_auth import get_api, _relogin
     from garminconnect import Garmin
 
-    logger.info(f"[{user.name}] garmin_email={bool(user.garmin_email)} password_enc={bool(user.garmin_password_enc)}")
+    logger.info(f"[{user.name}] garmin_email={bool(user.watch_email)} password_enc={bool(user.watch_password_enc)}")
     api = None
-    if user.garmin_email and user.garmin_password_enc:
+    if user.watch_email and user.watch_password_enc:
         api = await _relogin(db, user)
         logger.info(f"[{user.name}] _relogin → api={'OK' if api else 'None'}")
     if api is None:

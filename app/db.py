@@ -62,11 +62,11 @@ class User(Base):
 
     firstname           = Column(String(100),           nullable=True)
 
-    # Garmin fields (mapped to users table columns)
-    name                = Column("garmin_username",    String(100), unique=True, nullable=True, index=True)
-    token_json          = Column("garmin_token_json",  Text,        nullable=True)
-    garmin_email        = Column(String(255),           nullable=True)
-    garmin_password_enc = Column(String(500),           nullable=True)
+    # Watch fields (multi-provider: garmin/polar/withings/coros)
+    name               = Column("watch_username",     String(100), unique=True, nullable=True, index=True)
+    token_json         = Column("watch_token_json",   Text,        nullable=True)
+    watch_email        = Column("watch_email",        String(255), nullable=True)
+    watch_password_enc = Column("watch_password_enc", String(500), nullable=True)
 
     daily_metrics        = relationship("DailyMetric",         back_populates="user", cascade="all, delete-orphan")
     activities           = relationship("Activity",            back_populates="user", cascade="all, delete-orphan")

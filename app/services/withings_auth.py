@@ -66,15 +66,15 @@ async def save_withings_token(db: AsyncSession, peakflow_email: str, withings_em
         if existing:
             await db.execute(
                 update(User).where(User.email == peakflow_email)
-                .values(token_json=token_json, garmin_email=withings_email)
+                .values(token_json=token_json, watch_email=withings_email)
             )
         else:
             stmt = (
                 pg_insert(User)
-                .values(name=peakflow_email, email=peakflow_email, token_json=token_json, garmin_email=withings_email)
+                .values(name=peakflow_email, email=peakflow_email, token_json=token_json, watch_email=withings_email)
                 .on_conflict_do_update(
                     index_elements=["email"],
-                    set_={"token_json": token_json, "garmin_email": withings_email},
+                    set_={"watch_token_json": token_json, "watch_email": withings_email},
                 )
             )
             await db.execute(stmt)

@@ -44,8 +44,8 @@ async def upsert_garmin_user(
                 **{
                     "name":               garmin_username,
                     "token_json":         token_json,
-                    **({"garmin_email":        garmin_email}        if garmin_email        else {}),
-                    **({"garmin_password_enc": garmin_password_enc} if garmin_password_enc else {}),
+                    **({"watch_email":        garmin_email}        if garmin_email        else {}),
+                    **({"watch_password_enc": garmin_password_enc} if garmin_password_enc else {}),
                 }
             )
         )
@@ -55,8 +55,8 @@ async def upsert_garmin_user(
             email=email,
             name=garmin_username,
             token_json=token_json,
-            garmin_email=garmin_email,
-            garmin_password_enc=garmin_password_enc,
+            watch_email=garmin_email,
+            watch_password_enc=garmin_password_enc,
         )
         db.add(new_user)
 
@@ -261,18 +261,18 @@ async def _relogin(db: AsyncSession, user: User) -> Garmin | None:
     Re-login automatique depuis les credentials chiffrés stockés.
     Appelé quand un 401 est détecté lors de la collecte.
     """
-    if not user.garmin_email or not user.garmin_password_enc:
+    if not user.watch_email or not user.watch_password_enc:
         log.warning(f"[{user.name}] Pas de credentials stockés — re-login impossible")
         return None
 
-    password = decrypt_password(user.garmin_password_enc)
+    password = decrypt_password(user.watch_password_enc)
     if not password:
         log.error(f"[{user.name}] Déchiffrement du mot de passe échoué")
         return None
 
     log.info(f"[{user.name}] Re-login automatique en cours...")
     try:
-        api = Garmin(user.garmin_email, password)
+        api = Garmin(user.watch_email, password)
         api.login()
         token_json = _dump_token(api)
 
