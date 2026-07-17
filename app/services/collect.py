@@ -104,7 +104,7 @@ async def _notify_token_expired(name: str, email: str):
         </a>
       </p>
       <p style="color: #64748b; font-size: 0.85rem; line-height: 1.6;">
-        Télécharge l'app Peakflow, connecte-toi avec tes identifiants Garmin ou Polar, et tes données reprendront automatiquement cette nuit.<br><br>
+        Reconnecte ta montre depuis l'onglet CRONOS sur peakflow-technologies.com, et tes données reprendront automatiquement cette nuit.<br><br>
         L'équipe Peakflow
       </p>
     </div>
