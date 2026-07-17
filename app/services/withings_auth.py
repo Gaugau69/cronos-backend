@@ -66,7 +66,7 @@ async def save_withings_token(db: AsyncSession, peakflow_email: str, withings_em
         if existing:
             await db.execute(
                 update(User).where(User.email == peakflow_email)
-                .values(token_json=token_json, watch_email=withings_email)
+                .values(token_json=token_json, watch_email=withings_email, name=peakflow_email)
             )
         else:
             stmt = (

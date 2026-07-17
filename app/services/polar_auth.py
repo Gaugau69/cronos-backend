@@ -108,7 +108,7 @@ async def save_polar_token(
         if existing:
             await db.execute(
                 update(User).where(User.email == peakflow_email)
-                .values(token_json=token_json, watch_email=polar_email)
+                .values(token_json=token_json, watch_email=polar_email, name=peakflow_email)
             )
         else:
             stmt = (
