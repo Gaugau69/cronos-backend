@@ -242,6 +242,21 @@ async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Dep
     return _to_out(user)
 
 
+@router.post("/{name}/test-relogin", dependencies=[Depends(require_admin)])
+async def test_relogin(name: str, db: AsyncSession = Depends(get_db)):
+    """Teste le re-login automatique Garmin sans toucher à la collecte."""
+    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, f"User '{name}' introuvable.")
+    if not user.watch_email or not user.watch_password_enc:
+        return {"user": name, "result": "skip", "reason": "pas de credentials stockés (non-Garmin ou connexion via OAuth)"}
+    from app.services.garmin_auth import _relogin
+    api = await _relogin(db, user)
+    if api:
+        return {"user": name, "result": "ok", "message": "Re-login réussi — nouveau token sauvegardé en DB"}
+    return {"user": name, "result": "error", "message": "Re-login échoué — vérifier logs Railway"}
+
+
 @router.post("/{name}/collect-test", dependencies=[Depends(require_admin)])
 async def collect_test(name: str, db: AsyncSession = Depends(get_db)):
     """Force la collecte d'hier pour un user — teste le token et le re-login automatique."""
