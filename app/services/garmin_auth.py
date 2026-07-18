@@ -10,6 +10,7 @@ import logging
 import os
 import pickle
 import base64
+from datetime import date
 
 from cryptography.fernet import Fernet
 from garminconnect import Garmin, GarminConnectAuthenticationError
@@ -115,7 +116,8 @@ def _try_fetch_display_name(api, email: str = "") -> None:
             log.info(f"display_name via connectapi socialProfile : {dn}")
             return
     except Exception as e:
-        log.debug(f"connectapi socialProfile échoué : {e}")
+        level = log.warning if "401" in str(e) else log.debug
+        level(f"connectapi socialProfile échoué : {e}")
 
     # 2. Via les méthodes de la lib garminconnect
     for method_name in ("get_user_profile", "get_full_name"):

@@ -581,6 +581,10 @@ async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
                 try:
                     summary = await collect_user_range(db, user, day, day)
                     log.info(f"[{user.name}] backfill {day}: {summary}")
+                    # Token expiré sans credentials → notification déjà envoyée, inutile de continuer
+                    if isinstance(summary, dict) and "401" in summary.get("reason", ""):
+                        log.warning(f"[{user.name}] Token invalide — backfill interrompu pour cet utilisateur")
+                        break
                 except Exception as e:
                     log.error(f"[{user.name}] backfill {day} échoué: {e}")
 

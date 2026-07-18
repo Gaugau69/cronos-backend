@@ -19,6 +19,8 @@ def _safe(fn, *args, default=None):
         log.info(f"✓ {fn.__name__} OK")
         return result
     except Exception as e:
+        if "401" in str(e):
+            raise  # Propagate so _collect_garmin_range can trigger re-login
         log.warning(f"{fn.__name__}: {e}")
         return default
 
