@@ -16,6 +16,21 @@ class Settings(BaseSettings):
     withings_client_secret: str = ""
     withings_redirect_uri: str = ""
 
+    # Oura OAuth
+    oura_client_id: str = ""
+    oura_client_secret: str = ""
+    oura_redirect_uri: str = ""
+
+    # WHOOP OAuth
+    whoop_client_id: str = ""
+    whoop_client_secret: str = ""
+    whoop_redirect_uri: str = ""
+
+    # Fitbit OAuth
+    fitbit_client_id: str = ""
+    fitbit_client_secret: str = ""
+    fitbit_redirect_uri: str = ""
+
     graphhopper_api_key: str
     garmin_encryption_key: str = ""
 

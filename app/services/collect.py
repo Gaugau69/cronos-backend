@@ -1,7 +1,7 @@
 """
 app/services/collect.py — Orchestration de la collecte et upsert en DB.
 
-Supporte Garmin, Polar, Withings et COROS — détecte automatiquement le provider depuis le token.
+Supporte Garmin, Polar, Withings, COROS, Oura, WHOOP, Fitbit — détecte automatiquement le provider.
 """
 
 import asyncio
@@ -28,6 +28,12 @@ from app.services.withings_auth import get_withings_headers, get_withings_userid
 from app.services.withings_parse import collect_activities_withings, collect_day_withings
 from app.services.coros_auth import get_coros_auth
 from app.services.coros_parse import collect_activities_coros, collect_day_coros
+from app.services.oura_auth import get_oura_headers, refresh_oura_token
+from app.services.oura_parse import collect_activities_oura, collect_day_oura
+from app.services.whoop_auth import get_whoop_headers, refresh_whoop_token
+from app.services.whoop_parse import collect_activities_whoop, collect_day_whoop
+from app.services.fitbit_auth import get_fitbit_headers, refresh_fitbit_token
+from app.services.fitbit_parse import collect_activities_fitbit, collect_day_fitbit
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +74,12 @@ async def collect_user_range(db: AsyncSession, user: User, start: date, end: dat
         return await _collect_withings_range(db, user, start, end)
     elif provider == "coros":
         return await _collect_coros_range(db, user, start, end)
+    elif provider == "oura":
+        return await _collect_oura_range(db, user, start, end)
+    elif provider == "whoop":
+        return await _collect_whoop_range(db, user, start, end)
+    elif provider == "fitbit":
+        return await _collect_fitbit_range(db, user, start, end)
     else:
         return await _collect_garmin_range(db, user, start, end)
 
@@ -559,6 +571,201 @@ async def _collect_withings_range(db: AsyncSession, user: User, start: date, end
                 await _notify_token_expired(user.name, user.email)
                 return {"status": "error", "reason": "401 Withings — token révoqué"}
             log.debug(f"[{user.name}] Withings jour {current} ignoré: {e}")
+
+        days_scanned += 1
+        _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}
+        current -= timedelta(days=1)
+
+    _backfill_progress[user.name] = {"running": False, "days_scanned": days_scanned, "days_target": days_target}
+    return {"status": "ok", "days": days_ok, "activities": acts_ok}
+
+
+# ─────────────────────────────────────────────────────────────
+# Oura
+# ─────────────────────────────────────────────────────────────
+
+async def _collect_oura_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
+    refreshed = await refresh_oura_token(db, user)
+    headers = await get_oura_headers(user, refreshed_token=refreshed)
+    if not headers:
+        log.error(f"[{user.name}] Token Oura invalide — notification envoyée")
+        await _notify_token_expired(user.name, user.email)
+        return {"status": "error", "reason": "401 Oura — token invalide"}
+
+    days_ok = 0
+    acts_ok = 0
+    current = end
+    days_target = max(1, (end - start).days + 1)
+    days_scanned = 0
+    _backfill_progress[user.name] = {"running": True, "days_scanned": 0, "days_target": days_target}
+
+    while current >= start:
+        log.info(f"[{user.name}] collecting Oura {current}")
+        try:
+            metrics = await collect_day_oura(headers, current)
+            row = {"user_id": user.id, "date": current, **metrics}
+            set_dict = _safe_upsert_row(row, ("user_id", "date"))
+            await db.execute(
+                pg_insert(DailyMetric).values(**row)
+                .on_conflict_do_update(index_elements=["user_id", "date"], set_=set_dict)
+            )
+            days_ok += 1
+
+            activities = await collect_activities_oura(headers, current)
+            for act in activities:
+                act_row = {"user_id": user.id, "date": current, **act}
+                act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+                await db.execute(
+                    pg_insert(Activity).values(**act_row)
+                    .on_conflict_do_update(constraint="uq_cronos_user_activity", set_=act_set)
+                )
+                acts_ok += 1
+            await db.commit()
+
+        except Exception as e:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            try:
+                await db.refresh(user)
+            except Exception:
+                pass
+            if "401" in str(e):
+                log.error(f"[{user.name}] Oura 401 — token révoqué, notification envoyée")
+                await _notify_token_expired(user.name, user.email)
+                return {"status": "error", "reason": "401 Oura — token révoqué"}
+            log.debug(f"[{user.name}] Oura jour {current} ignoré: {e}")
+
+        days_scanned += 1
+        _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}
+        current -= timedelta(days=1)
+
+    _backfill_progress[user.name] = {"running": False, "days_scanned": days_scanned, "days_target": days_target}
+    return {"status": "ok", "days": days_ok, "activities": acts_ok}
+
+
+# ─────────────────────────────────────────────────────────────
+# WHOOP
+# ─────────────────────────────────────────────────────────────
+
+async def _collect_whoop_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
+    refreshed = await refresh_whoop_token(db, user)
+    headers = await get_whoop_headers(user, refreshed_token=refreshed)
+    if not headers:
+        log.error(f"[{user.name}] Token WHOOP invalide — notification envoyée")
+        await _notify_token_expired(user.name, user.email)
+        return {"status": "error", "reason": "401 WHOOP — token invalide"}
+
+    days_ok = 0
+    acts_ok = 0
+    current = end
+    days_target = max(1, (end - start).days + 1)
+    days_scanned = 0
+    _backfill_progress[user.name] = {"running": True, "days_scanned": 0, "days_target": days_target}
+
+    while current >= start:
+        log.info(f"[{user.name}] collecting WHOOP {current}")
+        try:
+            metrics = await collect_day_whoop(headers, current)
+            row = {"user_id": user.id, "date": current, **metrics}
+            set_dict = _safe_upsert_row(row, ("user_id", "date"))
+            await db.execute(
+                pg_insert(DailyMetric).values(**row)
+                .on_conflict_do_update(index_elements=["user_id", "date"], set_=set_dict)
+            )
+            days_ok += 1
+
+            activities = await collect_activities_whoop(headers, current)
+            for act in activities:
+                act_row = {"user_id": user.id, "date": current, **act}
+                act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+                await db.execute(
+                    pg_insert(Activity).values(**act_row)
+                    .on_conflict_do_update(constraint="uq_cronos_user_activity", set_=act_set)
+                )
+                acts_ok += 1
+            await db.commit()
+
+        except Exception as e:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            try:
+                await db.refresh(user)
+            except Exception:
+                pass
+            if "401" in str(e):
+                log.error(f"[{user.name}] WHOOP 401 — token révoqué, notification envoyée")
+                await _notify_token_expired(user.name, user.email)
+                return {"status": "error", "reason": "401 WHOOP — token révoqué"}
+            log.debug(f"[{user.name}] WHOOP jour {current} ignoré: {e}")
+
+        days_scanned += 1
+        _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}
+        current -= timedelta(days=1)
+
+    _backfill_progress[user.name] = {"running": False, "days_scanned": days_scanned, "days_target": days_target}
+    return {"status": "ok", "days": days_ok, "activities": acts_ok}
+
+
+# ─────────────────────────────────────────────────────────────
+# Fitbit
+# ─────────────────────────────────────────────────────────────
+
+async def _collect_fitbit_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
+    refreshed = await refresh_fitbit_token(db, user)
+    headers = await get_fitbit_headers(user, refreshed_token=refreshed)
+    if not headers:
+        log.error(f"[{user.name}] Token Fitbit invalide — notification envoyée")
+        await _notify_token_expired(user.name, user.email)
+        return {"status": "error", "reason": "401 Fitbit — token invalide"}
+
+    days_ok = 0
+    acts_ok = 0
+    current = end
+    days_target = max(1, (end - start).days + 1)
+    days_scanned = 0
+    _backfill_progress[user.name] = {"running": True, "days_scanned": 0, "days_target": days_target}
+
+    while current >= start:
+        log.info(f"[{user.name}] collecting Fitbit {current}")
+        try:
+            metrics = await collect_day_fitbit(headers, current)
+            row = {"user_id": user.id, "date": current, **metrics}
+            set_dict = _safe_upsert_row(row, ("user_id", "date"))
+            await db.execute(
+                pg_insert(DailyMetric).values(**row)
+                .on_conflict_do_update(index_elements=["user_id", "date"], set_=set_dict)
+            )
+            days_ok += 1
+
+            activities = await collect_activities_fitbit(headers, current)
+            for act in activities:
+                act_row = {"user_id": user.id, "date": current, **act}
+                act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+                await db.execute(
+                    pg_insert(Activity).values(**act_row)
+                    .on_conflict_do_update(constraint="uq_cronos_user_activity", set_=act_set)
+                )
+                acts_ok += 1
+            await db.commit()
+
+        except Exception as e:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            try:
+                await db.refresh(user)
+            except Exception:
+                pass
+            if "401" in str(e):
+                log.error(f"[{user.name}] Fitbit 401 — token révoqué, notification envoyée")
+                await _notify_token_expired(user.name, user.email)
+                return {"status": "error", "reason": "401 Fitbit — token révoqué"}
+            log.debug(f"[{user.name}] Fitbit jour {current} ignoré: {e}")
 
         days_scanned += 1
         _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}

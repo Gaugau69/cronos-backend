@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db import AsyncSessionLocal, init_db
-from app.routers import data, users, polar, withings, profile
+from app.routers import data, users, polar, withings, profile, oura, whoop, fitbit
 from app.routers import feedback as feedback_router
 from app.routers import notifications as notifications_router
 from app.services.collect import collect_all_users_yesterday
@@ -136,6 +136,9 @@ app.include_router(polar.router)
 from app.routers import coros as coros_router
 app.include_router(coros_router.router)
 app.include_router(withings.router)
+app.include_router(oura.router)
+app.include_router(whoop.router)
+app.include_router(fitbit.router)
 app.include_router(profile.router)
 app.include_router(session_history_router)
 app.include_router(routes_router.router)
