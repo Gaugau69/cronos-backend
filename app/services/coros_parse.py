@@ -35,6 +35,8 @@ async def _get(
 ) -> dict | None:
     try:
         resp = await client.get(url, headers=headers, params=params)
+        if resp.status_code == 401:
+            raise Exception(f"COROS 401: token expiré ou révoqué ({url})")
         if resp.status_code == 200:
             body = resp.json()
             if body.get("result") != "0000":
@@ -44,6 +46,8 @@ async def _get(
         log.warning(f"COROS API {url}: HTTP {resp.status_code}")
         return None
     except Exception as e:
+        if "401" in str(e):
+            raise
         log.warning(f"COROS API error {url}: {e}")
         return None
 

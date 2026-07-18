@@ -18,9 +18,15 @@ async def _post(client, url, headers, data) -> dict | None:
             body = resp.json()
             if body.get("status") == 0:
                 return body.get("body", {})
+            if body.get("status") in (401, 342, 343):
+                raise Exception(f"Withings 401: token expiré ou révoqué (status={body.get('status')})")
+        elif resp.status_code == 401:
+            raise Exception("Withings 401: token expiré ou révoqué (HTTP 401)")
         log.warning(f"Withings {url}: {resp.status_code}")
         return None
     except Exception as e:
+        if "401" in str(e):
+            raise
         log.warning(f"Withings error: {e}")
         return None
 

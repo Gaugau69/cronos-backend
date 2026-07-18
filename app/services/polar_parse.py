@@ -29,10 +29,14 @@ async def _get(client: httpx.AsyncClient, url: str, headers: dict) -> dict | Non
             return resp.json()
         elif resp.status_code == 204:
             return {}  # No content — pas de données pour ce jour
+        elif resp.status_code == 401:
+            raise Exception(f"Polar 401: accès révoqué ou token invalide ({url})")
         else:
             log.warning(f"Polar API {url}: {resp.status_code}")
             return None
     except Exception as e:
+        if "401" in str(e):
+            raise
         log.warning(f"Polar API error {url}: {e}")
         return None
 

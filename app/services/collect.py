@@ -24,7 +24,7 @@ from app.services.garmin_parse import (
 )
 from app.services.polar_auth import get_polar_api_headers
 from app.services.polar_parse import collect_activities_polar, collect_day_polar
-from app.services.withings_auth import get_withings_headers, get_withings_userid
+from app.services.withings_auth import get_withings_headers, get_withings_userid, refresh_withings_token
 from app.services.withings_parse import collect_activities_withings, collect_day_withings
 from app.services.coros_auth import get_coros_auth
 from app.services.coros_parse import collect_activities_coros, collect_day_coros
@@ -353,7 +353,7 @@ async def _collect_polar_range(db: AsyncSession, user: User, start: date, end: d
 
     days_ok = 0
     acts_ok = 0
-    current = end  # Part du plus récent → les données des 90 derniers jours arrivent en premier
+    current = end
     days_target = max(1, (end - start).days + 1)
     days_scanned = 0
     _backfill_progress[user.name] = {"running": True, "days_scanned": 0, "days_target": days_target}
@@ -361,35 +361,48 @@ async def _collect_polar_range(db: AsyncSession, user: User, start: date, end: d
     while current >= start:
         log.info(f"[{user.name}] collecting Polar {current}")
 
-        metrics = await collect_day_polar(headers, polar_user_id, current)
-        row = {"user_id": user.id, "date": current, **metrics}
+        try:
+            metrics = await collect_day_polar(headers, polar_user_id, current)
+            row = {"user_id": user.id, "date": current, **metrics}
 
-        set_dict = _safe_upsert_row(row, ("user_id", "date"))
-        await db.execute(
-            pg_insert(DailyMetric)
-            .values(**row)
-            .on_conflict_do_update(
-                index_elements=["user_id", "date"],
-                set_=set_dict,
-            )
-        )
-        days_ok += 1
-
-        activities = await collect_activities_polar(headers, polar_user_id, current)
-        for act in activities:
-            act_row = {"user_id": user.id, "date": current, **act}
-            act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+            set_dict = _safe_upsert_row(row, ("user_id", "date"))
             await db.execute(
-                pg_insert(Activity)
-                .values(**act_row)
+                pg_insert(DailyMetric)
+                .values(**row)
                 .on_conflict_do_update(
-                    constraint="uq_cronos_user_activity",
-                    set_=act_set,
+                    index_elements=["user_id", "date"],
+                    set_=set_dict,
                 )
             )
-            acts_ok += 1
+            days_ok += 1
 
-        await db.commit()
+            activities = await collect_activities_polar(headers, polar_user_id, current)
+            for act in activities:
+                act_row = {"user_id": user.id, "date": current, **act}
+                act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+                await db.execute(
+                    pg_insert(Activity)
+                    .values(**act_row)
+                    .on_conflict_do_update(
+                        constraint="uq_cronos_user_activity",
+                        set_=act_set,
+                    )
+                )
+                acts_ok += 1
+
+            await db.commit()
+
+        except Exception as e:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            if "401" in str(e):
+                log.error(f"[{user.name}] Polar 401 — accès révoqué, notification envoyée")
+                await _notify_token_expired(user.name, user.email)
+                return {"status": "error", "reason": "401 Polar — accès révoqué"}
+            log.debug(f"[{user.name}] Polar jour {current} ignoré: {e}")
+
         days_scanned += 1
         _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}
         current -= timedelta(days=1)
@@ -412,35 +425,48 @@ async def _collect_coros_range(db: AsyncSession, user: User, start: date, end: d
     acts_ok = 0
     days_target = max(1, (end - start).days + 1)
     days_scanned = 0
-    current = end  # Scan backward : du plus récent vers le plus ancien
+    current = end
 
     _backfill_progress[user.name] = {"running": True, "days_scanned": 0, "days_target": days_target}
 
     while current >= start:
         log.info(f"[{user.name}] collecting COROS {current}")
 
-        metrics = await collect_day_coros(access_token, user_id, current, region)
-        row = {"user_id": user.id, "date": current, **metrics}
-        set_dict = _safe_upsert_row(row, ("user_id", "date"))
-        await db.execute(
-            pg_insert(DailyMetric)
-            .values(**row)
-            .on_conflict_do_update(index_elements=["user_id", "date"], set_=set_dict)
-        )
-        days_ok += 1
-
-        activities = await collect_activities_coros(access_token, user_id, current, region)
-        for act in activities:
-            act_row = {"user_id": user.id, "date": current, **act}
-            act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+        try:
+            metrics = await collect_day_coros(access_token, user_id, current, region)
+            row = {"user_id": user.id, "date": current, **metrics}
+            set_dict = _safe_upsert_row(row, ("user_id", "date"))
             await db.execute(
-                pg_insert(Activity)
-                .values(**act_row)
-                .on_conflict_do_update(index_elements=["user_id", "activity_id"], set_=act_set)
+                pg_insert(DailyMetric)
+                .values(**row)
+                .on_conflict_do_update(index_elements=["user_id", "date"], set_=set_dict)
             )
-            acts_ok += 1
+            days_ok += 1
 
-        await db.commit()
+            activities = await collect_activities_coros(access_token, user_id, current, region)
+            for act in activities:
+                act_row = {"user_id": user.id, "date": current, **act}
+                act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+                await db.execute(
+                    pg_insert(Activity)
+                    .values(**act_row)
+                    .on_conflict_do_update(index_elements=["user_id", "activity_id"], set_=act_set)
+                )
+                acts_ok += 1
+
+            await db.commit()
+
+        except Exception as e:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            if "401" in str(e):
+                log.error(f"[{user.name}] COROS 401 — token expiré, notification envoyée")
+                await _notify_token_expired(user.name, user.email)
+                return {"status": "error", "reason": "401 COROS — token expiré"}
+            log.debug(f"[{user.name}] COROS jour {current} ignoré: {e}")
+
         days_scanned += 1
         _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}
         current -= timedelta(days=1)
@@ -454,13 +480,19 @@ async def _collect_coros_range(db: AsyncSession, user: User, start: date, end: d
 # ─────────────────────────────────────────────────────────────
 
 async def _collect_withings_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
-    headers = await get_withings_headers(user)
+    # Withings access tokens expire every 3h — always refresh before collection
+    refreshed = await refresh_withings_token(db, user)
+    if refreshed is None:
+        log.warning(f"[{user.name}] Refresh token Withings échoué — tentative avec le token existant")
+    headers = await get_withings_headers(user, refreshed_token=refreshed)
     if not headers:
-        return {"status": "error", "reason": "token Withings invalide"}
+        log.error(f"[{user.name}] Token Withings invalide — notification envoyée")
+        await _notify_token_expired(user.name, user.email)
+        return {"status": "error", "reason": "401 Withings — token invalide"}
 
     days_ok = 0
     acts_ok = 0
-    current = end  # Part du plus récent → les données des 90 derniers jours arrivent en premier
+    current = end
     days_target = max(1, (end - start).days + 1)
     days_scanned = 0
     _backfill_progress[user.name] = {"running": True, "days_scanned": 0, "days_target": days_target}
@@ -468,35 +500,48 @@ async def _collect_withings_range(db: AsyncSession, user: User, start: date, end
     while current >= start:
         log.info(f"[{user.name}] collecting Withings {current}")
 
-        metrics = await collect_day_withings(headers, current)
-        row = {"user_id": user.id, "date": current, **metrics}
+        try:
+            metrics = await collect_day_withings(headers, current)
+            row = {"user_id": user.id, "date": current, **metrics}
 
-        set_dict = _safe_upsert_row(row, ("user_id", "date"))
-        await db.execute(
-            pg_insert(DailyMetric)
-            .values(**row)
-            .on_conflict_do_update(
-                index_elements=["user_id", "date"],
-                set_=set_dict,
-            )
-        )
-        days_ok += 1
-
-        activities = await collect_activities_withings(headers, current)
-        for act in activities:
-            act_row = {"user_id": user.id, "date": current, **act}
-            act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+            set_dict = _safe_upsert_row(row, ("user_id", "date"))
             await db.execute(
-                pg_insert(Activity)
-                .values(**act_row)
+                pg_insert(DailyMetric)
+                .values(**row)
                 .on_conflict_do_update(
-                    constraint="uq_cronos_user_activity",
-                    set_=act_set,
+                    index_elements=["user_id", "date"],
+                    set_=set_dict,
                 )
             )
-            acts_ok += 1
+            days_ok += 1
 
-        await db.commit()
+            activities = await collect_activities_withings(headers, current)
+            for act in activities:
+                act_row = {"user_id": user.id, "date": current, **act}
+                act_set = _safe_upsert_row(act_row, ("user_id", "activity_id"))
+                await db.execute(
+                    pg_insert(Activity)
+                    .values(**act_row)
+                    .on_conflict_do_update(
+                        constraint="uq_cronos_user_activity",
+                        set_=act_set,
+                    )
+                )
+                acts_ok += 1
+
+            await db.commit()
+
+        except Exception as e:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            if "401" in str(e):
+                log.error(f"[{user.name}] Withings 401 — token révoqué, notification envoyée")
+                await _notify_token_expired(user.name, user.email)
+                return {"status": "error", "reason": "401 Withings — token révoqué"}
+            log.debug(f"[{user.name}] Withings jour {current} ignoré: {e}")
+
         days_scanned += 1
         _backfill_progress[user.name] = {"running": True, "days_scanned": days_scanned, "days_target": days_target}
         current -= timedelta(days=1)

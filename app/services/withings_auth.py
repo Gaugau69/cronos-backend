@@ -86,11 +86,55 @@ async def save_withings_token(db: AsyncSession, peakflow_email: str, withings_em
         return False
 
 
-async def get_withings_headers(user: User) -> dict | None:
+async def refresh_withings_token(db: AsyncSession, user: User) -> dict | None:
+    """Rafraîchit l'access_token Withings (expire toutes les 3h) via le refresh_token."""
+    try:
+        token_data = json.loads(user.token_json)
+        refresh_token = token_data.get("refresh_token")
+        if not refresh_token:
+            log.warning(f"[{user.name}] Pas de refresh_token Withings stocké")
+            return None
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                WITHINGS_TOKEN_URL,
+                data={
+                    "action":        "refreshtoken",
+                    "grant_type":    "refresh_token",
+                    "client_id":     settings.withings_client_id,
+                    "client_secret": settings.withings_client_secret,
+                    "refresh_token": refresh_token,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("status") != 0:
+                raise Exception(f"Withings refresh error: {data.get('error', data.get('status'))}")
+
+            body = data.get("body", {})
+            new_token = {
+                **token_data,
+                "access_token":  body["access_token"],
+                "refresh_token": body.get("refresh_token", refresh_token),
+            }
+            await db.execute(
+                update(User).where(User.id == user.id)
+                .values(token_json=json.dumps(new_token))
+            )
+            await db.commit()
+            log.info(f"[{user.name}] Token Withings rafraîchi ✓")
+            return new_token
+    except Exception as e:
+        log.error(f"[{user.name}] Refresh token Withings échoué: {e}")
+        return None
+
+
+async def get_withings_headers(user: User, refreshed_token: dict | None = None) -> dict | None:
     if not user.token_json:
         return None
     try:
-        token_data = json.loads(user.token_json)
+        token_data = refreshed_token or json.loads(user.token_json)
         if token_data.get("provider") != "withings":
             return None
         return {
