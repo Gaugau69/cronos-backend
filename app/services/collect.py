@@ -308,6 +308,12 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
                 await db.rollback()
             except Exception:
                 pass
+            # Après rollback SQLAlchemy marque l'objet user comme expiré ;
+            # refresh() le recharge pour éviter MissingGreenlet sur user.name/email
+            try:
+                await db.refresh(user)
+            except Exception:
+                pass
 
             if "401" in str(e) and not relogin_attempted:
                 log.warning(f"[{user.name}] 401 détecté — tentative de re-login automatique")
@@ -397,6 +403,10 @@ async def _collect_polar_range(db: AsyncSession, user: User, start: date, end: d
                 await db.rollback()
             except Exception:
                 pass
+            try:
+                await db.refresh(user)
+            except Exception:
+                pass
             if "401" in str(e):
                 log.error(f"[{user.name}] Polar 401 — accès révoqué, notification envoyée")
                 await _notify_token_expired(user.name, user.email)
@@ -459,6 +469,10 @@ async def _collect_coros_range(db: AsyncSession, user: User, start: date, end: d
         except Exception as e:
             try:
                 await db.rollback()
+            except Exception:
+                pass
+            try:
+                await db.refresh(user)
             except Exception:
                 pass
             if "401" in str(e):
@@ -534,6 +548,10 @@ async def _collect_withings_range(db: AsyncSession, user: User, start: date, end
         except Exception as e:
             try:
                 await db.rollback()
+            except Exception:
+                pass
+            try:
+                await db.refresh(user)
             except Exception:
                 pass
             if "401" in str(e):
