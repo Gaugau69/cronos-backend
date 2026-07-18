@@ -242,6 +242,18 @@ async def register_with_token(payload: UserTokenRegister, db: AsyncSession = Dep
     return _to_out(user)
 
 
+@router.post("/{name}/collect-test", dependencies=[Depends(require_admin)])
+async def collect_test(name: str, db: AsyncSession = Depends(get_db)):
+    """Force la collecte d'hier pour un user — teste le token et le re-login automatique."""
+    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, f"User '{name}' introuvable.")
+    from app.services.collect import collect_user_range
+    yesterday = date.today() - timedelta(days=1)
+    result = await collect_user_range(db, user, yesterday, yesterday)
+    return {"user": name, "date": yesterday.isoformat(), **result}
+
+
 @router.post("/{name}/backfill", dependencies=[Depends(require_admin)])
 async def trigger_backfill(name: str, db: AsyncSession = Depends(get_db)):
     """Déclenche manuellement le backfill 2 ans pour un utilisateur existant."""
