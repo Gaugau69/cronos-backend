@@ -3,6 +3,7 @@ app/main.py — Application FastAPI, lifespan, scheduler cron.
 """
 
 import logging
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -39,16 +40,29 @@ async def _daily_job():
     2. Collecte les métriques J-1 pour tous les utilisateurs
     """
     log.info("=== CRON START ===")
-    async with AsyncSessionLocal() as db:
-        try:
-            from app.services.garmin_auth import check_and_refresh_tokens
-            await check_and_refresh_tokens(db)
-        except Exception as e:
-            log.error(f"Erreur vérification tokens : {e}")
+    try:
+        async with AsyncSessionLocal() as db:
+            try:
+                from app.services.garmin_auth import check_and_refresh_tokens
+                await check_and_refresh_tokens(db)
+            except Exception as e:
+                log.error(f"Erreur vérification tokens : {e}\n{traceback.format_exc()}")
 
-        from app.services.collect import collect_all_users_yesterday, backfill_missing_days
-        await collect_all_users_yesterday(db)
-        await backfill_missing_days(db, lookback_days=14)
+            try:
+                from app.services.collect import collect_all_users_yesterday, backfill_missing_days
+                await collect_all_users_yesterday(db)
+            except Exception as e:
+                log.error(f"[CRON] collect_all_users_yesterday a échoué : {e}\n{traceback.format_exc()}")
+
+            try:
+                from app.services.collect import backfill_missing_days
+                await backfill_missing_days(db, lookback_days=14)
+            except Exception as e:
+                log.error(f"[CRON] backfill_missing_days a échoué : {e}\n{traceback.format_exc()}")
+
+    except BaseException as e:
+        log.error(f"[CRON] Exception fatale dans _daily_job : {e}\n{traceback.format_exc()}")
+        raise
     log.info("=== CRON END ===")
 
 

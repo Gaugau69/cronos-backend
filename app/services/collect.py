@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
@@ -811,7 +812,7 @@ async def collect_all_users_yesterday(db: AsyncSession):
                 await _notify_watch_not_worn(user.name, user.email)
 
         except Exception as e:
-            log.error(f"[{user.name}] Erreur collecte: {e}")
+            log.error(f"[{user.name}] Erreur collecte: {e}\n{traceback.format_exc()}")
 
 
 async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
@@ -856,7 +857,7 @@ async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
                         log.warning(f"[{user.name}] Token invalide — backfill interrompu pour cet utilisateur")
                         break
                 except Exception as e:
-                    log.error(f"[{user.name}] backfill {day} échoué: {e}")
+                    log.error(f"[{user.name}] backfill {day} échoué: {e}\n{traceback.format_exc()}")
 
         except Exception as e:
-            log.error(f"[{user.name}] Erreur backfill: {e}")
+            log.error(f"[{user.name}] Erreur backfill: {e}\n{traceback.format_exc()}")
