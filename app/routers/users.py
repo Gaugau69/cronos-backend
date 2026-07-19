@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import AsyncSessionLocal, DailyMetric, User, get_db
 from app.schemas import UserCreate, UserOut
 from app.services.garmin_auth import login_and_save_token, upsert_garmin_user, encrypt_password
-from app.dependencies import require_admin
+from app.dependencies import require_admin, get_caller_email, require_owner
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -311,6 +311,33 @@ async def get_user(name: str, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(404, f"User '{name}' introuvable.")
     return _to_out(user)
+
+
+class WatchCredentialsIn(BaseModel):
+    watch_email: str
+    watch_password: str
+
+
+@router.put("/{name}/watch-credentials")
+async def update_watch_credentials(
+    name: str,
+    payload: WatchCredentialsIn,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    """Met à jour les identifiants Garmin (email + mdp) après un changement de mot de passe."""
+    await require_owner(name, db, caller_email)
+
+    ok = await login_and_save_token(
+        db,
+        name=name,
+        email=payload.watch_email,
+        password=payload.watch_password,
+        save_credentials=True,
+    )
+    if not ok:
+        raise HTTPException(400, "Identifiants Garmin incorrects — vérifie ton email et mot de passe.")
+    return {"status": "ok"}
 
 
 @router.delete("/{name}", status_code=204, dependencies=[Depends(require_admin)])

@@ -5,6 +5,7 @@ Compatible garminconnect >= 0.3.x
 Re-login automatique en cas de 401 si credentials chiffrés disponibles.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -275,10 +276,10 @@ async def _relogin(db: AsyncSession, user: User) -> Garmin | None:
     log.info(f"[{user.name}] Re-login automatique en cours...")
     try:
         api = Garmin(user.watch_email, password)
-        api.login()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, api.login)
         token_json = _dump_token(api)
 
-        # Met à jour le token en DB
         await db.execute(
             update(User)
             .where(User.email == user.email)
@@ -289,7 +290,13 @@ async def _relogin(db: AsyncSession, user: User) -> Garmin | None:
         return api
 
     except GarminConnectAuthenticationError:
-        log.error(f"[{user.name}] ✗ Re-login échoué — mauvais identifiants ?")
+        log.error(f"[{user.name}] ✗ Re-login échoué — identifiants incorrects (mdp changé ?)")
+        if user.email:
+            try:
+                from app.services.collect import _notify_password_changed
+                asyncio.create_task(_notify_password_changed(user.name, user.email))
+            except Exception:
+                pass
         return None
     except Exception as e:
         log.error(f"[{user.name}] ✗ Erreur re-login : {e}")
@@ -315,10 +322,10 @@ async def login_and_save_token(
     """
     try:
         api = Garmin(email, password)
-        api.login()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, api.login)
         token_json = _dump_token(api)
 
-        # Chiffre le mot de passe si demandé
         password_enc = None
         if save_credentials:
             password_enc = encrypt_password(password)
@@ -406,9 +413,16 @@ async def check_and_refresh_tokens(db: AsyncSession) -> None:
                 await _relogin(db, user)
             else:
                 # Tente un appel léger pour vérifier si le token est encore actif
+                # run_in_executor évite de bloquer l'event loop sur cet appel synchrone
                 try:
-                    api.get_user_summary(date.today().isoformat())
+                    loop = asyncio.get_event_loop()
+                    await asyncio.wait_for(
+                        loop.run_in_executor(None, api.get_user_summary, date.today().isoformat()),
+                        timeout=15,
+                    )
                     log.info(f"[{user.name}] Token valide ✓")
+                except asyncio.TimeoutError:
+                    log.warning(f"[{user.name}] Timeout vérif token — skip")
                 except Exception as e:
                     if "401" in str(e):
                         log.warning(f"[{user.name}] Token expiré détecté — re-login préventif")

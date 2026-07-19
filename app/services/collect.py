@@ -147,6 +147,48 @@ async def _notify_token_expired(name: str, email: str):
         log.error(f"[{name}] Exception envoi email : {e}")
 
 
+async def _notify_password_changed(name: str, email: str):
+    """Email spécifique quand le re-login Garmin échoue par mauvais identifiants (mdp changé ?)."""
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key:
+        return
+    from_email = os.environ.get("EMAIL_FROM", "peakflow@peakflow-technologies.com")
+    body_html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #0a0e1a; color: #f5f5f0;">
+      <h2 style="color: #f59e0b; font-size: 1.2rem; margin-bottom: 16px;">Peakflow — Identifiants Garmin incorrects</h2>
+      <p style="color: #94a3b8; line-height: 1.7; margin-bottom: 24px;">
+        Bonjour <strong style="color: #f5f5f0;">{name}</strong>,<br><br>
+        CRONOS n'arrive plus à se connecter à ton compte Garmin.<br>
+        Ton mot de passe Garmin a peut-être changé récemment.
+      </p>
+      <p style="margin-bottom: 32px;">
+        <a href="https://peakflow-technologies.com/settings"
+           style="background: #f59e0b; color: #060d0a; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+          Mettre à jour mes identifiants →
+        </a>
+      </p>
+      <p style="color: #64748b; font-size: 0.85rem; line-height: 1.6;">
+        Va dans Paramètres → Intégration montre pour renseigner ton nouveau mot de passe Garmin.<br><br>
+        L'équipe Peakflow
+      </p>
+    </div>
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"from": from_email, "to": [email], "subject": "Peakflow — Mets à jour ton mot de passe Garmin", "html": body_html},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                log.info(f"[{name}] ✓ Email identifiants incorrects envoyé")
+            else:
+                log.error(f"[{name}] Erreur email identifiants : {resp.status_code}")
+    except Exception as e:
+        log.error(f"[{name}] Exception email identifiants : {e}")
+
+
 async def _notify_watch_not_worn(name: str, email: str):
     """Envoie un email si la montre n'a pas été portée depuis 2 jours."""
     api_key = os.environ.get("RESEND_API_KEY")
