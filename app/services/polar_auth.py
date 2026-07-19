@@ -15,7 +15,7 @@ import logging
 from urllib.parse import urlencode
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -97,10 +97,11 @@ async def save_polar_token(
     from sqlalchemy import update
     try:
         polar_token = {
-            "provider":      "polar",
-            "access_token":  token_data.get("access_token"),
-            "token_type":    token_data.get("token_type"),
-            "polar_user_id": str(token_data.get("x_user_id", "")),
+            "provider":       "polar",
+            "access_token":   token_data.get("access_token"),
+            "token_type":     token_data.get("token_type"),
+            "polar_user_id":  str(token_data.get("x_user_id", "")),
+            "refresh_token":  token_data.get("refresh_token", ""),
         }
         token_json = json.dumps(polar_token)
 
@@ -128,15 +129,58 @@ async def save_polar_token(
         return False
 
 
-async def get_polar_api_headers(user: User) -> dict | None:
+async def refresh_polar_token(db: AsyncSession, user: User) -> dict | None:
     """
-    Retourne les headers d'authentification Polar depuis le token en DB.
+    Rafraîchit le token Polar via refresh_token OAuth2.
+    Retourne le nouveau token_data (merged) ou None si échec/pas de refresh_token.
     """
     if not user.token_json:
         return None
     try:
         token_data = json.loads(user.token_json)
         if token_data.get("provider") != "polar":
+            return None
+        refresh_token = token_data.get("refresh_token")
+        if not refresh_token:
+            log.warning(f"[{user.name}] Pas de refresh_token Polar stocké — reconnexion manuelle nécessaire si token expiré")
+            return None
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                POLAR_TOKEN_URL,
+                data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+                auth=(settings.polar_client_id, settings.polar_client_secret),
+                headers={"Accept": "application/json"},
+            )
+            if resp.status_code != 200:
+                log.error(f"[{user.name}] Refresh Polar échoué: {resp.status_code} — {resp.text[:200]}")
+                return None
+
+            new_token = resp.json()
+            updated = {
+                **token_data,
+                "access_token":  new_token["access_token"],
+                "refresh_token": new_token.get("refresh_token", refresh_token),
+            }
+            await db.execute(
+                update(User).where(User.id == user.id).values(token_json=json.dumps(updated))
+            )
+            await db.commit()
+            log.info(f"[{user.name}] ✓ Token Polar rafraîchi")
+            return updated
+
+    except Exception as e:
+        log.error(f"[{user.name}] Erreur refresh Polar: {e}")
+        return None
+
+
+async def get_polar_api_headers(user: User, refreshed_token: dict | None = None) -> dict | None:
+    """
+    Retourne les headers d'authentification Polar depuis le token en DB (ou le token rafraîchi).
+    """
+    try:
+        token_data = refreshed_token or (json.loads(user.token_json) if user.token_json else None)
+        if not token_data or token_data.get("provider") != "polar":
             return None
         return {
             "Authorization": f"Bearer {token_data['access_token']}",

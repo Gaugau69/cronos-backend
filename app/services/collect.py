@@ -23,7 +23,7 @@ from app.services.garmin_parse import (
     parse_activities, parse_body_battery, parse_heart_rate,
     parse_hrv, parse_sleep, parse_stats, parse_steps, parse_stress,
 )
-from app.services.polar_auth import get_polar_api_headers
+from app.services.polar_auth import get_polar_api_headers, refresh_polar_token
 from app.services.polar_parse import collect_activities_polar, collect_day_polar
 from app.services.withings_auth import get_withings_headers, get_withings_userid, refresh_withings_token
 from app.services.withings_parse import collect_activities_withings, collect_day_withings
@@ -357,7 +357,8 @@ async def _collect_garmin_range(db: AsyncSession, user: User, start: date, end: 
 # ─────────────────────────────────────────────────────────────
 
 async def _collect_polar_range(db: AsyncSession, user: User, start: date, end: date) -> dict:
-    headers = await get_polar_api_headers(user)
+    refreshed = await refresh_polar_token(db, user)
+    headers = await get_polar_api_headers(user, refreshed_token=refreshed)
     if not headers:
         return {"status": "error", "reason": "token Polar invalide"}
 

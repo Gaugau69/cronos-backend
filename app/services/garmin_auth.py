@@ -379,6 +379,7 @@ async def check_and_refresh_tokens(db: AsyncSession) -> None:
     Si un token est proche de l'expiration, tente un re-login préventif.
     """
     from sqlalchemy import select
+    from app.services.polar_auth import refresh_polar_token
     users = (await db.execute(select(User))).scalars().all()
 
     for user in users:
@@ -386,9 +387,17 @@ async def check_and_refresh_tokens(db: AsyncSession) -> None:
             continue
         try:
             token_data = json.loads(user.token_json)
-            # Skip non-Garmin providers — ils gèrent leur propre refresh
-            if token_data.get("provider") not in (None, "garmin", ""):
-                log.debug(f"[{user.name}] Skip token check — provider: {token_data.get('provider')}")
+            provider = token_data.get("provider") or "garmin"
+
+            # Polar — refresh OAuth2
+            if provider == "polar":
+                await refresh_polar_token(db, user)
+                continue
+
+            # Autres non-Garmin (COROS, Withings, Oura, WHOOP, Fitbit) —
+            # gèrent leur propre refresh à la collecte
+            if provider not in (None, "garmin", ""):
+                log.debug(f"[{user.name}] Skip token check — provider: {provider}")
                 continue
             # Vérifie si le token client_dump est valide en reconstruisant l'API
             api = _load_api(user.token_json, user.email or "")
