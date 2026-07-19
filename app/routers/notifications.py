@@ -27,7 +27,7 @@ async def _get_user(db: AsyncSession, name: str) -> User:
 
 class NotifPrefsIn(BaseModel):
     email_enabled: bool
-    send_hour: int = 7   # 0-23 UTC
+    send_hour: int = 8   # 0-23 UTC
 
 
 @router.get("/users/{name}/notifications")
@@ -43,7 +43,7 @@ async def get_notifications(
 
     return {
         "email_enabled": prefs.email_enabled if prefs else False,
-        "send_hour":     prefs.send_hour     if prefs else 7,
+        "send_hour":     prefs.send_hour     if prefs else 8,
         "email":         user.email,
     }
 
