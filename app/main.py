@@ -2,6 +2,7 @@
 app/main.py — Application FastAPI, lifespan, scheduler cron.
 """
 
+import asyncio
 import logging
 import traceback
 from contextlib import asynccontextmanager
