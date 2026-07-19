@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import Activity, AsyncSessionLocal, DailyMetric, User
+from app.db import Activity, AsyncSessionLocal, DailyMetric, NotificationPrefs, User
 from app.services.garmin_auth import get_api
 from app.services.garmin_parse import (
     parse_activities, parse_body_battery, parse_heart_rate,
@@ -802,22 +802,40 @@ async def collect_all_users_yesterday(db: AsyncSession):
                 log.info(f"[{user_name}] {summary}")
 
                 # Vérifie si la montre n'a pas été portée depuis 2 jours
+                # On remonte 3 jours : si J-3 aussi sans données, l'email a déjà été envoyé avant-hier
+                three_days_ago = date.today() - timedelta(days=3)
                 recent = (await user_db.execute(
                     select(DailyMetric)
                     .where(DailyMetric.user_id == user_id)
-                    .where(DailyMetric.date >= two_days_ago)
+                    .where(DailyMetric.date >= three_days_ago)
                     .order_by(DailyMetric.date.desc())
                 )).scalars().all()
 
-                # Montre non portée = 2 jours consécutifs sans aucun signal
-                no_data = all(
-                    not any([m.sleep_score, m.hrv_last_night, m.body_battery_charged, m.resting_hr])
-                    for m in recent
-                ) if len(recent) >= 2 else False
+                def _no_signal(m):
+                    return not any([m.sleep_score, m.hrv_last_night, m.body_battery_charged, m.resting_hr])
 
-                if no_data:
-                    log.warning(f"[{user_name}] Montre non portée depuis 2 jours — notification envoyée")
-                    await _notify_watch_not_worn(user_name, user_email)
+                by_date = {m.date: m for m in recent}
+                yesterday_d    = date.today() - timedelta(days=1)
+                two_days_ago_d = date.today() - timedelta(days=2)
+                three_days_ago_d = date.today() - timedelta(days=3)
+
+                no_data_d1 = _no_signal(by_date[yesterday_d])    if yesterday_d    in by_date else True
+                no_data_d2 = _no_signal(by_date[two_days_ago_d]) if two_days_ago_d in by_date else True
+                # J-3 sans données + ligne existante → email déjà envoyé avant-hier → cooldown
+                already_notified = (three_days_ago_d in by_date) and _no_signal(by_date[three_days_ago_d])
+
+                # Vérifie les préférences email de l'utilisateur
+                notif_prefs = (await user_db.execute(
+                    select(NotificationPrefs).where(NotificationPrefs.user_id == user_id)
+                )).scalar_one_or_none()
+                email_ok = notif_prefs is not None and notif_prefs.email_enabled
+
+                if no_data_d1 and no_data_d2 and not already_notified:
+                    if email_ok:
+                        log.warning(f"[{user_name}] Montre non portée depuis 2 jours — notification envoyée")
+                        await _notify_watch_not_worn(user_name, user_email)
+                    else:
+                        log.info(f"[{user_name}] Montre non portée depuis 2 jours — notifs désactivées, email non envoyé")
 
         except asyncio.CancelledError:
             # CancelledError est une BaseException — sans ce bloc elle tuerait tout le cron.

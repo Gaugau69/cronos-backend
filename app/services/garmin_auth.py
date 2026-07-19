@@ -386,6 +386,10 @@ async def check_and_refresh_tokens(db: AsyncSession) -> None:
             continue
         try:
             token_data = json.loads(user.token_json)
+            # Skip non-Garmin providers — ils gèrent leur propre refresh
+            if token_data.get("provider") not in (None, "garmin", ""):
+                log.debug(f"[{user.name}] Skip token check — provider: {token_data.get('provider')}")
+                continue
             # Vérifie si le token client_dump est valide en reconstruisant l'API
             api = _load_api(user.token_json, user.email or "")
             if api is None:
