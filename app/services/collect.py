@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import Activity, DailyMetric, User
+from app.db import Activity, AsyncSessionLocal, DailyMetric, User
 from app.services.garmin_auth import get_api
 from app.services.garmin_parse import (
     parse_activities, parse_body_battery, parse_heart_rate,
@@ -789,30 +789,38 @@ async def collect_all_users_yesterday(db: AsyncSession):
     )).scalars().all()
     log.info(f"Cron: {yesterday} — {len(users)} user(s)")
     for user in users:
+        user_id = user.id
+        user_name = user.name
+        user_email = user.email
         try:
-            summary = await collect_user_range(db, user, yesterday, yesterday)
-            log.info(f"[{user.name}] {summary}")
+            # Session fraîche par user — évite qu'un commit/rollback raté corrompe la session pour les suivants
+            async with AsyncSessionLocal() as user_db:
+                fresh_user = (await user_db.execute(
+                    select(User).where(User.id == user_id)
+                )).scalar_one()
+                summary = await collect_user_range(user_db, fresh_user, yesterday, yesterday)
+                log.info(f"[{user_name}] {summary}")
 
-            # Vérifie si la montre n'a pas été portée depuis 2 jours
-            recent = (await db.execute(
-                select(DailyMetric)
-                .where(DailyMetric.user_id == user.id)
-                .where(DailyMetric.date >= two_days_ago)
-                .order_by(DailyMetric.date.desc())
-            )).scalars().all()
+                # Vérifie si la montre n'a pas été portée depuis 2 jours
+                recent = (await user_db.execute(
+                    select(DailyMetric)
+                    .where(DailyMetric.user_id == user_id)
+                    .where(DailyMetric.date >= two_days_ago)
+                    .order_by(DailyMetric.date.desc())
+                )).scalars().all()
 
-            # Montre non portée = 2 jours consécutifs sans aucun signal
-            no_data = all(
-                not any([m.sleep_score, m.hrv_last_night, m.body_battery_charged, m.resting_hr])
-                for m in recent
-            ) if len(recent) >= 2 else False
+                # Montre non portée = 2 jours consécutifs sans aucun signal
+                no_data = all(
+                    not any([m.sleep_score, m.hrv_last_night, m.body_battery_charged, m.resting_hr])
+                    for m in recent
+                ) if len(recent) >= 2 else False
 
-            if no_data:
-                log.warning(f"[{user.name}] Montre non portée depuis 2 jours — notification envoyée")
-                await _notify_watch_not_worn(user.name, user.email)
+                if no_data:
+                    log.warning(f"[{user_name}] Montre non portée depuis 2 jours — notification envoyée")
+                    await _notify_watch_not_worn(user_name, user_email)
 
         except Exception as e:
-            log.error(f"[{user.name}] Erreur collecte: {e}\n{traceback.format_exc()}")
+            log.error(f"[{user_name}] Erreur collecte: {e}\n{traceback.format_exc()}")
 
 
 async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
@@ -827,37 +835,44 @@ async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
     log.info(f"Backfill: vérification des {lookback_days} derniers jours pour {len(users)} user(s) avec token")
 
     for user in users:
+        user_id = user.id
+        user_name = user.name
         try:
-            # Récupère les dates déjà présentes en base pour ce user
-            start_window = today - timedelta(days=lookback_days)
-            existing = (await db.execute(
-                select(DailyMetric.date)
-                .where(DailyMetric.user_id == user.id)
-                .where(DailyMetric.date >= start_window)
-                .where(DailyMetric.date < today)
-            )).scalars().all()
+            # Session fraîche par user pour éviter la corruption de session entre utilisateurs
+            async with AsyncSessionLocal() as user_db:
+                # Récupère les dates déjà présentes en base pour ce user
+                start_window = today - timedelta(days=lookback_days)
+                existing = (await user_db.execute(
+                    select(DailyMetric.date)
+                    .where(DailyMetric.user_id == user_id)
+                    .where(DailyMetric.date >= start_window)
+                    .where(DailyMetric.date < today)
+                )).scalars().all()
 
-            existing_dates = set(existing)
-            missing = [
-                today - timedelta(days=i)
-                for i in range(1, lookback_days + 1)
-                if (today - timedelta(days=i)) not in existing_dates
-            ]
+                existing_dates = set(existing)
+                missing = [
+                    today - timedelta(days=i)
+                    for i in range(1, lookback_days + 1)
+                    if (today - timedelta(days=i)) not in existing_dates
+                ]
 
-            if not missing:
-                continue
+                if not missing:
+                    continue
 
-            log.info(f"[{user.name}] {len(missing)} jour(s) manquant(s) — backfill en cours")
-            for day in missing:
-                try:
-                    summary = await collect_user_range(db, user, day, day)
-                    log.info(f"[{user.name}] backfill {day}: {summary}")
-                    # Token expiré sans credentials → notification déjà envoyée, inutile de continuer
-                    if isinstance(summary, dict) and "401" in summary.get("reason", ""):
-                        log.warning(f"[{user.name}] Token invalide — backfill interrompu pour cet utilisateur")
-                        break
-                except Exception as e:
-                    log.error(f"[{user.name}] backfill {day} échoué: {e}\n{traceback.format_exc()}")
+                log.info(f"[{user_name}] {len(missing)} jour(s) manquant(s) — backfill en cours")
+                fresh_user = (await user_db.execute(
+                    select(User).where(User.id == user_id)
+                )).scalar_one()
+                for day in missing:
+                    try:
+                        summary = await collect_user_range(user_db, fresh_user, day, day)
+                        log.info(f"[{user_name}] backfill {day}: {summary}")
+                        # Token expiré sans credentials → notification déjà envoyée, inutile de continuer
+                        if isinstance(summary, dict) and "401" in summary.get("reason", ""):
+                            log.warning(f"[{user_name}] Token invalide — backfill interrompu pour cet utilisateur")
+                            break
+                    except Exception as e:
+                        log.error(f"[{user_name}] backfill {day} échoué: {e}\n{traceback.format_exc()}")
 
         except Exception as e:
-            log.error(f"[{user.name}] Erreur backfill: {e}\n{traceback.format_exc()}")
+            log.error(f"[{user_name}] Erreur backfill: {e}\n{traceback.format_exc()}")
