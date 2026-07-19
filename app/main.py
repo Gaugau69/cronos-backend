@@ -129,14 +129,14 @@ async def lifespan(app: FastAPI):
         id="daily_collect",
         replace_existing=True,
     )
-    # scheduler.add_job(
-    #     _notification_job,
-    #     CronTrigger(minute=0, timezone="UTC"),
-    #     id="hourly_notifications",
-    #     replace_existing=True,
-    # )
+    scheduler.add_job(
+        _notification_job,
+        CronTrigger(minute=0, timezone="UTC"),
+        id="hourly_notifications",
+        replace_existing=True,
+    )
     scheduler.start()
-    log.info(f"✓ Cron démarré — collecte à {settings.collect_hour:02d}:{settings.collect_minute:02d} UTC | notifications DÉSACTIVÉES")
+    log.info(f"✓ Cron démarré — collecte à {settings.collect_hour:02d}:{settings.collect_minute:02d} UTC | notifications ACTIVÉES")
 
     yield
 
