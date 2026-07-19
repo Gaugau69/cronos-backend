@@ -9,7 +9,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -194,11 +194,8 @@ async def health():
 @app.post("/admin/run-daily-job", tags=["admin"])
 async def run_daily_job_now(x_admin_secret: str = Header(...)):
     """Déclenche immédiatement le job de collecte quotidienne (sans attendre 3h UTC)."""
-    from app.dependencies import require_admin
-    from fastapi import Header as _Header
     if not settings.admin_secret or x_admin_secret != settings.admin_secret:
-        from fastapi import HTTPException as _HTTPException
-        raise _HTTPException(403, "Accès refusé.")
+        raise HTTPException(403, "Accès refusé.")
     asyncio.create_task(_daily_job())
     return {"status": "started", "message": "Job de collecte lancé en arrière-plan — voir les logs Railway"}
 
