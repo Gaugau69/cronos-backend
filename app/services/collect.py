@@ -819,6 +819,10 @@ async def collect_all_users_yesterday(db: AsyncSession):
                     log.warning(f"[{user_name}] Montre non portée depuis 2 jours — notification envoyée")
                     await _notify_watch_not_worn(user_name, user_email)
 
+        except asyncio.CancelledError:
+            # CancelledError est une BaseException — sans ce bloc elle tuerait tout le cron.
+            # On la log comme erreur fatale par user et on continue les autres.
+            log.error(f"[{user_name}] CancelledError interceptée pendant la collecte — on continue avec le user suivant\n{traceback.format_exc()}")
         except Exception as e:
             log.error(f"[{user_name}] Erreur collecte: {e}\n{traceback.format_exc()}")
 
@@ -871,8 +875,12 @@ async def backfill_missing_days(db: AsyncSession, lookback_days: int = 14):
                         if isinstance(summary, dict) and "401" in summary.get("reason", ""):
                             log.warning(f"[{user_name}] Token invalide — backfill interrompu pour cet utilisateur")
                             break
+                    except asyncio.CancelledError:
+                        log.error(f"[{user_name}] CancelledError backfill {day} — on continue\n{traceback.format_exc()}")
                     except Exception as e:
                         log.error(f"[{user_name}] backfill {day} échoué: {e}\n{traceback.format_exc()}")
 
+        except asyncio.CancelledError:
+            log.error(f"[{user_name}] CancelledError backfill — on continue avec le user suivant\n{traceback.format_exc()}")
         except Exception as e:
             log.error(f"[{user_name}] Erreur backfill: {e}\n{traceback.format_exc()}")

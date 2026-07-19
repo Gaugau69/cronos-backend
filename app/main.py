@@ -190,6 +190,18 @@ async def serve_connect():
 async def health():
     return {"status": "ok"}
 
+
+@app.post("/admin/run-daily-job", tags=["admin"])
+async def run_daily_job_now(x_admin_secret: str = Header(...)):
+    """Déclenche immédiatement le job de collecte quotidienne (sans attendre 3h UTC)."""
+    from app.dependencies import require_admin
+    from fastapi import Header as _Header
+    if not settings.admin_secret or x_admin_secret != settings.admin_secret:
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(403, "Accès refusé.")
+    asyncio.create_task(_daily_job())
+    return {"status": "started", "message": "Job de collecte lancé en arrière-plan — voir les logs Railway"}
+
 @app.get("/cronos", include_in_schema=False)
 async def serve_cronos():
     return FileResponse(STATIC_DIR / "cronos.html")
