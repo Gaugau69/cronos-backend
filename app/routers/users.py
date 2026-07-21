@@ -340,6 +340,38 @@ async def update_watch_credentials(
     return {"status": "ok"}
 
 
+class CorosCredentialsIn(BaseModel):
+    coros_email: str
+    coros_password: str
+    region: str = "eu"
+
+
+@router.put("/{name}/coros-credentials")
+async def update_coros_credentials(
+    name: str,
+    payload: CorosCredentialsIn,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    """Met à jour les identifiants COROS après un changement de mot de passe."""
+    await require_owner(name, db, caller_email)
+
+    user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, f"User '{name}' introuvable.")
+
+    from app.services.coros_auth import login_coros, save_coros_token
+    try:
+        auth_data = await login_coros(payload.coros_email, payload.coros_password, payload.region)
+    except Exception as e:
+        raise HTTPException(400, "Identifiants COROS incorrects — vérifie ton email et mot de passe.")
+
+    ok = await save_coros_token(db, user.email, payload.coros_email, payload.coros_password, auth_data)
+    if not ok:
+        raise HTTPException(500, "Erreur lors de la sauvegarde des credentials COROS.")
+    return {"status": "ok"}
+
+
 @router.delete("/{name}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_user(name: str, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.name == name))).scalar_one_or_none()
