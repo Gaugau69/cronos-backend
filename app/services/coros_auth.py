@@ -15,7 +15,7 @@ import httpx
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import User
+from app.db import User, NotificationPrefs
 from app.services.garmin_auth import decrypt_password, encrypt_password
 
 log = logging.getLogger(__name__)
@@ -90,6 +90,17 @@ async def save_coros_token(
             update(User).where(User.email == peakflow_email).values(token_json=token_json, name=peakflow_email)
         )
         await db.commit()
+
+        # Enable notifications by default on first watch connection
+        user = (await db.execute(select(User).where(User.email == peakflow_email))).scalar_one_or_none()
+        if user:
+            existing_prefs = (await db.execute(
+                select(NotificationPrefs).where(NotificationPrefs.user_id == user.id)
+            )).scalar_one_or_none()
+            if not existing_prefs:
+                db.add(NotificationPrefs(user_id=user.id, email_enabled=True, send_hour=7))
+                await db.commit()
+
         log.info(f"✓ Token COROS sauvegardé pour {peakflow_email}")
         return True
     except Exception as e:

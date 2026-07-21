@@ -18,7 +18,7 @@ from garminconnect import Garmin, GarminConnectAuthenticationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import User
+from app.db import User, NotificationPrefs
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,17 @@ async def upsert_garmin_user(
         db.add(new_user)
 
     await db.commit()
-    return (await db.execute(select(User).where(User.email == email))).scalar_one()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one()
+
+    # Enable notifications by default on first watch connection
+    existing_prefs = (await db.execute(
+        select(NotificationPrefs).where(NotificationPrefs.user_id == user.id)
+    )).scalar_one_or_none()
+    if not existing_prefs:
+        db.add(NotificationPrefs(user_id=user.id, email_enabled=True, send_hour=7))
+        await db.commit()
+
+    return user
 
 
 # ─────────────────────────────────────────────────────────────
