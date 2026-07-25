@@ -148,13 +148,13 @@ async def _push_coros_workout(token_data: dict, session: SessionData) -> dict:
     today      = date.today().strftime("%Y%m%d")
 
     payload = {
-        "userId":        user_id,
-        "name":          session.session_name,
-        "sportMode":     100,           # 100 = Running
-        "planDate":      today,
-        "duration":      total_secs,
-        "distance":      distance_m,
-        "remark":        f"{session.description} — {session.example}",
+        "userId":       user_id,
+        "name":         session.session_name,
+        "mode":         100,            # 100 = Running
+        "planDate":     today,
+        "targetType":   3,              # 3 = temps + distance
+        "targetTime":   total_secs,
+        "targetDis":    distance_m,
     }
 
     async with httpx.AsyncClient(timeout=20) as client:
