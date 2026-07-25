@@ -124,6 +124,55 @@ def _build_garmin_workout(session: SessionData):
     )
 
 
+# ── Conversion CRONOS → Coros ─────────────────────────────────────────────────
+
+async def _push_coros_workout(token_data: dict, session: SessionData) -> dict:
+    """Pousse une séance vers le COROS Training Hub API."""
+    import httpx
+    from app.services.coros_auth import BASE_URLS, _auth_headers
+
+    access_token = token_data.get("access_token")
+    user_id      = token_data.get("user_id")
+    region       = token_data.get("region", "eu")
+
+    if not access_token or not user_id:
+        raise ValueError("Token COROS invalide — reconnecte ta montre.")
+
+    base    = BASE_URLS.get(region, BASE_URLS["eu"])
+    headers = _auth_headers(access_token, user_id)
+
+    cat = session.category
+    total_secs = session.duration_min * 60
+    distance_m = int(session.distance_km * 1000)
+
+    # workoutType: 1 = endurance/récup, 2 = intervalles
+    workout_type = 2 if cat in ("intensite", "force") else 1
+
+    payload = {
+        "name":          session.session_name,
+        "mode":          100,           # 100 = Running
+        "workoutType":   workout_type,
+        "totalTime":     total_secs,
+        "totalDistance": distance_m,
+        "remark":        f"{session.description} — {session.example}",
+    }
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            f"{base}/training/plan/add",
+            headers=headers,
+            json=payload,
+        )
+        body = resp.json()
+        log.info(f"COROS /training/plan/add → HTTP {resp.status_code} body={body}")
+        if body.get("result") != "0000":
+            raise ValueError(
+                f"COROS API ({body.get('result', resp.status_code)}): "
+                f"{body.get('message', 'Erreur inconnue')}"
+            )
+        return body.get("data") or {}
+
+
 # ── Endpoint principal ────────────────────────────────────────────────────────
 
 @router.post("/push", response_model=WorkoutPushResponse)
@@ -173,7 +222,18 @@ async def push_workout(
 
     # ── Coros ─────────────────────────────────────────────────────────────────
     elif provider == "coros":
-        raise HTTPException(501, "Export Coros coming soon — implémentation en cours.")
+        try:
+            result = await _push_coros_workout(token_data, req.session)
+            log.info(f"Workout Coros poussé pour {req.username}: {result}")
+            return WorkoutPushResponse(
+                ok=True,
+                provider="coros",
+                workout_id=result.get("planId") or result.get("id"),
+                message="Séance ajoutée à COROS Training Hub — elle se synchronisera sur ta montre à la prochaine connexion.",
+            )
+        except Exception as e:
+            log.error(f"Erreur push Coros pour {req.username}: {e}")
+            raise HTTPException(502, f"Erreur COROS: {e}")
 
     else:
         raise HTTPException(400, f"Provider '{provider}' non supporté pour l'export de workout.")
