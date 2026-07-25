@@ -160,6 +160,8 @@ app.include_router(routes_router.router)
 app.include_router(pacing_router.router)
 app.include_router(feedback_router.router)
 app.include_router(notifications_router.router)
+from app.routers import workouts as workouts_router
+app.include_router(workouts_router.router)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
