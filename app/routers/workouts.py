@@ -129,6 +129,7 @@ def _build_garmin_workout(session: SessionData):
 async def _push_coros_workout(token_data: dict, session: SessionData) -> dict:
     """Pousse une séance vers le COROS Training Hub API."""
     import httpx
+    from datetime import date
     from app.services.coros_auth import BASE_URLS, _auth_headers
 
     access_token = token_data.get("access_token")
@@ -141,19 +142,18 @@ async def _push_coros_workout(token_data: dict, session: SessionData) -> dict:
     base    = BASE_URLS.get(region, BASE_URLS["eu"])
     headers = _auth_headers(access_token, user_id)
 
-    cat = session.category
+    cat        = session.category
     total_secs = session.duration_min * 60
     distance_m = int(session.distance_km * 1000)
-
-    # workoutType: 1 = endurance/récup, 2 = intervalles
-    workout_type = 2 if cat in ("intensite", "force") else 1
+    today      = date.today().strftime("%Y%m%d")
 
     payload = {
+        "userId":        user_id,
         "name":          session.session_name,
-        "mode":          100,           # 100 = Running
-        "workoutType":   workout_type,
-        "totalTime":     total_secs,
-        "totalDistance": distance_m,
+        "sportMode":     100,           # 100 = Running
+        "planDate":      today,
+        "duration":      total_secs,
+        "distance":      distance_m,
         "remark":        f"{session.description} — {session.example}",
     }
 
@@ -164,7 +164,7 @@ async def _push_coros_workout(token_data: dict, session: SessionData) -> dict:
             json=payload,
         )
         body = resp.json()
-        log.info(f"COROS /training/plan/add → HTTP {resp.status_code} body={body}")
+        log.info(f"COROS /training/plan/add payload={payload} → HTTP {resp.status_code} body={body}")
         if body.get("result") != "0000":
             raise ValueError(
                 f"COROS API ({body.get('result', resp.status_code)}): "
