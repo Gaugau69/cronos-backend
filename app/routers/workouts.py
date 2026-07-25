@@ -147,29 +147,39 @@ async def _push_coros_workout(token_data: dict, session: SessionData) -> dict:
     distance_m = int(session.distance_km * 1000)
     today      = date.today().strftime("%Y%m%d")
 
-    payload = {
-        "userId":   int(user_id),   # int, pas string
-        "name":     session.session_name,
-        "mode":     100,
-        "planDate": int(today),     # int YYYYMMDD
-        "targetTime": session.duration_min,  # en minutes
-        "targetDis":  distance_m,
-    }
+    # On tente les deux endpoints avec des variantes de payload
+    endpoints = [
+        ("/training/target/add", {
+            "userId":         int(user_id),
+            "sportType":      100,
+            "planDate":       today,               # YYYYMMDD string
+            "targetDuration": session.duration_min,
+            "targetDistance": distance_m,
+            "name":           session.session_name,
+        }),
+        ("/training/plan/add", {
+            "userId":     int(user_id),
+            "sportType":  100,
+            "trainDate":  today,
+            "targetTime": session.duration_min,
+            "targetDis":  distance_m,
+            "name":       session.session_name,
+        }),
+    ]
 
     async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.post(
-            f"{base}/training/plan/add",
-            headers=headers,
-            json=payload,
+        for endpoint, payload in endpoints:
+            resp = await client.post(f"{base}{endpoint}", headers=headers, json=payload)
+            body = resp.json()
+            log.info(f"COROS {endpoint} payload={payload} → HTTP {resp.status_code} body={body}")
+            if body.get("result") == "0000":
+                return body.get("data") or {}
+            log.warning(f"COROS {endpoint} failed: {body.get('result')} {body.get('message')}")
+
+        raise ValueError(
+            f"COROS API: aucun endpoint n'a fonctionné — "
+            f"dernier résultat: {body.get('result')} {body.get('message')}"
         )
-        body = resp.json()
-        log.info(f"COROS /training/plan/add payload={payload} → HTTP {resp.status_code} body={body}")
-        if body.get("result") != "0000":
-            raise ValueError(
-                f"COROS API ({body.get('result', resp.status_code)}): "
-                f"{body.get('message', 'Erreur inconnue')}"
-            )
-        return body.get("data") or {}
 
 
 # ── Endpoint principal ────────────────────────────────────────────────────────
