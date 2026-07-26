@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from app.config import settings
 import httpx
-import math
 import random
 import logging
 
@@ -20,25 +19,6 @@ class LoopResponse(BaseModel):
     profile: str
 
 
-def _offset_point(lat: float, lng: float, distance_km: float, bearing_deg: float):
-    """Calcule un point à `distance_km` au cap `bearing_deg` depuis (lat, lng)."""
-    R = 6371.0  # rayon terrestre en km
-    bearing = math.radians(bearing_deg)
-    lat1 = math.radians(lat)
-    lng1 = math.radians(lng)
-    angular_dist = distance_km / R
-
-    lat2 = math.asin(
-        math.sin(lat1) * math.cos(angular_dist)
-        + math.cos(lat1) * math.sin(angular_dist) * math.cos(bearing)
-    )
-    lng2 = lng1 + math.atan2(
-        math.sin(bearing) * math.sin(angular_dist) * math.cos(lat1),
-        math.cos(angular_dist) - math.sin(lat1) * math.sin(lat2),
-    )
-    return math.degrees(lat2), math.degrees(lng2)
-
-
 @router.get("/loop", response_model=LoopResponse)
 async def generate_loop(
     lat: float = Query(...),
@@ -47,30 +27,23 @@ async def generate_loop(
     profile: str = Query("foot", regex="^(foot|bike)$"),
     seed: int = Query(0),
 ):
-    """Génère une boucle approximative : aller jusqu'à un point distant, puis retour."""
+    """Génère une boucle via l'algorithme round_trip de GraphHopper.
+
+    L'algo round_trip prend une distance cible en mètres et gère lui-même
+    la topographie — pas de biais selon le terrain (montagne, plaine, etc.).
+    """
     if not GRAPHHOPPER_API_KEY:
         raise HTTPException(500, "GRAPHHOPPER_API_KEY non configurée")
 
-    # On vise un point à environ distance/3 en distance à vol d'oiseau
-    # (le trajet réel sur routes fera ~2.5-3x la distance à vol d'oiseau pour un AR)
-    target_straight_km = distance_km / 3.0
-
-    # Cap aléatoire mais déterministe (selon seed)
     rng = random.Random(seed if seed else random.randint(1, 100000))
-    bearing_out = rng.uniform(0, 360)
-    # Détour : pour le retour on passe par un point décalé pour éviter le même chemin
-    bearing_detour = (bearing_out + rng.choice([90, -90, 60, -60, 120, -120])) % 360
+    rt_seed = rng.randint(1, 999999)
 
-    target_lat, target_lng = _offset_point(lat, lng, target_straight_km, bearing_out)
-    detour_lat, detour_lng = _offset_point(lat, lng, target_straight_km * 0.7, bearing_detour)
-
-    # Construction de la requête : 3 waypoints (départ → aller → détour → retour au départ)
     params = [
         ("profile", profile),
         ("point", f"{lat},{lng}"),
-        ("point", f"{target_lat},{target_lng}"),
-        ("point", f"{detour_lat},{detour_lng}"),
-        ("point", f"{lat},{lng}"),
+        ("algorithm", "round_trip"),
+        ("round_trip.distance", int(distance_km * 1000)),
+        ("round_trip.seed", rt_seed),
         ("points_encoded", "false"),
         ("instructions", "false"),
         ("key", GRAPHHOPPER_API_KEY),
