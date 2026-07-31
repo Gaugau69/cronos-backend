@@ -614,6 +614,44 @@ def _rank_sessions(
 
 
 # ─────────────────────────────────────────────────────────────
+# TSB GUARD
+# ─────────────────────────────────────────────────────────────
+
+def _apply_tsb_guard(sessions: list, tsb: float) -> list:
+    """Ajuste les recommandations en fonction du TSB AION."""
+    if tsb < -20:
+        rest = next((s for s in SESSIONS_V2 if s["id"] == 0), SESSIONS_V2[0])
+        return [{
+            **rest,
+            "rank": 1,
+            "score": 95.0,
+            "note": (
+                f"⚠️ TSB à {tsb} — surcharge critique détectée par AION. "
+                "Ton corps a besoin de récupérer avant de reprendre l'entraînement."
+            ),
+        }]
+    elif tsb < -10:
+        filtered = [
+            s for s in sessions
+            if s.get("intensity", 0) <= 0.55 and s.get("category") != "intensite"
+        ]
+        if not filtered:
+            filtered = sessions[:1]
+        for i, s in enumerate(filtered):
+            s = dict(s)
+            s["rank"] = i + 1
+            if i == 0:
+                s["note"] = (
+                    s.get("note") or
+                    f"⚡ TSB à {tsb} — AION détecte une fatigue accumulée. "
+                    "Les séances intenses ont été retirées de tes recommandations."
+                )
+            filtered[i] = s
+        return filtered
+    return sessions
+
+
+# ─────────────────────────────────────────────────────────────
 # RECOMMEND
 # ─────────────────────────────────────────────────────────────
 
@@ -784,6 +822,9 @@ async def recommend_sessions(
             recent_session_ids=recent_session_ids,
             terrain_profile=terrain_profile,
         )
+
+    # ── Garde TSB (AION) ─────────────────────────────────────────────────────
+    recommendations = _apply_tsb_guard(recommendations, load_info["tsb"])
 
     # ── Assemblage réponse ────────────────────────────────────────────────────
     recovery_out = {
