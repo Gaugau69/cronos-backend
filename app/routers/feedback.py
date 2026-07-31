@@ -7,6 +7,7 @@ Endpoints :
     GET  /users/{name}/feedback/stats  → stats agrégées par session
 """
 
+import json
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,12 +15,12 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import DailyMetric, SessionFeedback, User, get_db
+from app.db import DailyMetric, RecommendationsCache, SessionFeedback, User, get_db
 from app.dependencies import get_caller_email, require_owner
 
 router = APIRouter(tags=["feedback"])
 
-VALID_FEEDBACKS = {"facile", "ok", "difficile"}
+VALID_FEEDBACKS = {"facile", "ok", "difficile", "pas_faite"}
 
 
 async def _get_user(db: AsyncSession, name: str) -> User:
@@ -116,26 +117,71 @@ async def get_feedback_stats(
     for fb in rows:
         sid = fb.session_id
         if sid not in stats:
-            stats[sid] = {"session_name": fb.session_name, "facile": 0, "ok": 0, "difficile": 0}
+            stats[sid] = {"session_name": fb.session_name, "facile": 0, "ok": 0, "difficile": 0, "pas_faite": 0}
         stats[sid][fb.feedback] = stats[sid].get(fb.feedback, 0) + 1
 
     result = []
     for sid, s in stats.items():
-        total = s["facile"] + s["ok"] + s["difficile"]
+        rated = s["facile"] + s["ok"] + s["difficile"]
         result.append({
             "session_id":   sid,
             "session_name": s["session_name"],
-            "total":        total,
+            "total":        rated + s["pas_faite"],
             "facile":       s["facile"],
             "ok":           s["ok"],
             "difficile":    s["difficile"],
+            "pas_faite":    s["pas_faite"],
             "avg_difficulty": round(
-                (s["facile"] * -1 + s["ok"] * 0 + s["difficile"] * 1) / total, 2
-            ) if total else 0,
+                (s["facile"] * -1 + s["ok"] * 0 + s["difficile"] * 1) / rated, 2
+            ) if rated else 0,
         })
 
     result.sort(key=lambda x: x["total"], reverse=True)
     return result
+
+
+@router.get("/users/{name}/pending-feedback")
+async def get_pending_feedback(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    """Retourne la première séance d'hier sans feedback, ou {pending: false}."""
+    user = await require_owner(name, db, caller_email)
+    yesterday = date.today() - timedelta(days=1)
+
+    cache = (await db.execute(
+        select(RecommendationsCache)
+        .where(RecommendationsCache.user_id == user.id)
+        .where(RecommendationsCache.cache_date == yesterday)
+    )).scalar_one_or_none()
+
+    if not cache:
+        return {"pending": False}
+
+    recs = json.loads(cache.recommendations_json)
+    if not recs:
+        return {"pending": False}
+
+    top = recs[0]
+
+    existing = (await db.execute(
+        select(SessionFeedback)
+        .where(SessionFeedback.user_id == user.id)
+        .where(SessionFeedback.session_id == top["id"])
+        .where(SessionFeedback.done_at == yesterday)
+    )).scalar_one_or_none()
+
+    if existing:
+        return {"pending": False}
+
+    return {
+        "pending":      True,
+        "session_id":   top["id"],
+        "session_name": top["name"],
+        "category":     top.get("category", ""),
+        "done_at":      yesterday.isoformat(),
+    }
 
 
 # ── Wellness subjectif ────────────────────────────────────────────────────────
