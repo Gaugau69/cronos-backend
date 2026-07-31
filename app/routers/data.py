@@ -921,6 +921,54 @@ async def get_recovery_score(
 
 
 # ─────────────────────────────────────────────────────────────
+# LOAD SUMMARY (bilan léger pour le dashboard sans Strava)
+# ─────────────────────────────────────────────────────────────
+
+@router.get("/users/{name}/load-summary")
+async def get_load_summary(
+    name: str,
+    db: AsyncSession = Depends(get_db),
+    caller_email: str = Depends(get_caller_email),
+):
+    """Retourne ATL/CTL/TSB + recovery sans calculer les recommandations.
+    Utilisé par le dashboard Peakflow pour les utilisateurs Garmin-only (sans Strava)."""
+    user = await require_owner(name, db, caller_email)
+
+    metrics = (await db.execute(
+        select(DailyMetric)
+        .where(DailyMetric.user_id == user.id)
+        .where(DailyMetric.date >= date.today() - timedelta(days=15))
+        .order_by(DailyMetric.date.desc())
+    )).scalars().all()
+
+    activities = (await db.execute(
+        select(Activity)
+        .where(Activity.user_id == user.id)
+        .where(Activity.date >= date.today() - timedelta(days=42))
+        .where(Activity.activity_type.in_(["running", "trail_running", "treadmill_running"]))
+        .order_by(Activity.date.desc())
+    )).scalars().all()
+
+    load_info = _compute_training_load(list(activities))
+    recovery, signals = _compute_recovery(list(metrics), load_info)
+
+    return {
+        "date": date.today().isoformat(),
+        "load": load_info,
+        "recovery": {
+            "score": round(recovery * 100, 1),
+            "level": (
+                "Excellente" if recovery >= 0.75 else
+                "Bonne"      if recovery >= 0.55 else
+                "Moyenne"    if recovery >= 0.4  else
+                "Faible"
+            ),
+            **signals,
+        },
+    }
+
+
+# ─────────────────────────────────────────────────────────────
 # TRENDS
 # ─────────────────────────────────────────────────────────────
 
