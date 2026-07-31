@@ -172,6 +172,10 @@ async def get_pending_feedback(
         )).scalars().all()
     }
 
+    # Si l'utilisateur a déjà noté au moins une séance hier → ne pas afficher le popup
+    if rated_ids:
+        return {"pending": False, "sessions": []}
+
     pending = [
         {
             "session_id":   r["id"],
@@ -180,7 +184,7 @@ async def get_pending_feedback(
             "duration_min": r.get("duration_min"),
             "distance_km":  r.get("distance_km"),
         }
-        for r in recs if r["id"] not in rated_ids
+        for r in recs
     ]
 
     if not pending:
