@@ -617,37 +617,45 @@ def _rank_sessions(
 # TSB GUARD
 # ─────────────────────────────────────────────────────────────
 
-def _apply_tsb_guard(sessions: list, tsb: float) -> list:
-    """Ajuste les recommandations en fonction du TSB AION."""
-    if tsb < -20:
+def _apply_tsb_guard(sessions: list, tsb: float, load_info: dict | None = None) -> list:
+    """Ajuste les recommandations en fonction du TSB et du ratio ACWR (ATL/CTL)."""
+    atl = (load_info or {}).get("atl", 0.0)
+    ctl = (load_info or {}).get("ctl", 0.0)
+    acwr_approx = round(atl / ctl, 2) if ctl > 0 else 0.0
+
+    critical = tsb < -20 or acwr_approx > 1.5
+    elevated = tsb < -10 or acwr_approx > 1.25
+
+    if critical:
         rest = next((s for s in SESSIONS_V2 if s["id"] == 0), SESSIONS_V2[0])
         return [{
             **rest,
             "rank": 1,
             "score": 95.0,
             "note": (
-                f"⚠️ TSB à {tsb} — surcharge critique détectée par AION. "
+                f"⚠️ Surcharge critique détectée par AION (TSB {tsb}, ACWR ≈ {acwr_approx}). "
                 "Ton corps a besoin de récupérer avant de reprendre l'entraînement."
             ),
         }]
-    elif tsb < -10:
+    elif elevated:
         filtered = [
             s for s in sessions
             if s.get("intensity", 0) <= 0.55 and s.get("category") != "intensite"
         ]
         if not filtered:
             filtered = sessions[:1]
+        result = []
         for i, s in enumerate(filtered):
             s = dict(s)
             s["rank"] = i + 1
             if i == 0:
                 s["note"] = (
                     s.get("note") or
-                    f"⚡ TSB à {tsb} — AION détecte une fatigue accumulée. "
+                    f"⚡ Fatigue accumulée détectée par AION (TSB {tsb}, ACWR ≈ {acwr_approx}). "
                     "Les séances intenses ont été retirées de tes recommandations."
                 )
-            filtered[i] = s
-        return filtered
+            result.append(s)
+        return result
     return sessions
 
 
@@ -823,8 +831,8 @@ async def recommend_sessions(
             terrain_profile=terrain_profile,
         )
 
-    # ── Garde TSB (AION) ─────────────────────────────────────────────────────
-    recommendations = _apply_tsb_guard(recommendations, load_info["tsb"])
+    # ── Garde TSB/ACWR (AION) ────────────────────────────────────────────────
+    recommendations = _apply_tsb_guard(recommendations, load_info["tsb"], load_info)
 
     # ── Assemblage réponse ────────────────────────────────────────────────────
     recovery_out = {
