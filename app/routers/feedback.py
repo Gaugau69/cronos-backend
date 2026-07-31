@@ -146,7 +146,7 @@ async def get_pending_feedback(
     db: AsyncSession = Depends(get_db),
     caller_email: str = Depends(get_caller_email),
 ):
-    """Retourne la première séance d'hier sans feedback, ou {pending: false}."""
+    """Retourne les séances recommandées hier sans feedback (toutes), ou {pending: false}."""
     user = await require_owner(name, db, caller_email)
     yesterday = date.today() - timedelta(days=1)
 
@@ -157,31 +157,36 @@ async def get_pending_feedback(
     )).scalar_one_or_none()
 
     if not cache:
-        return {"pending": False}
+        return {"pending": False, "sessions": []}
 
     recs = json.loads(cache.recommendations_json)
     if not recs:
-        return {"pending": False}
+        return {"pending": False, "sessions": []}
 
-    top = recs[0]
-
-    existing = (await db.execute(
-        select(SessionFeedback)
-        .where(SessionFeedback.user_id == user.id)
-        .where(SessionFeedback.session_id == top["id"])
-        .where(SessionFeedback.done_at == yesterday)
-    )).scalar_one_or_none()
-
-    if existing:
-        return {"pending": False}
-
-    return {
-        "pending":      True,
-        "session_id":   top["id"],
-        "session_name": top["name"],
-        "category":     top.get("category", ""),
-        "done_at":      yesterday.isoformat(),
+    rated_ids = {
+        fb.session_id
+        for fb in (await db.execute(
+            select(SessionFeedback)
+            .where(SessionFeedback.user_id == user.id)
+            .where(SessionFeedback.done_at == yesterday)
+        )).scalars().all()
     }
+
+    pending = [
+        {
+            "session_id":   r["id"],
+            "session_name": r["name"],
+            "category":     r.get("category", ""),
+            "duration_min": r.get("duration_min"),
+            "distance_km":  r.get("distance_km"),
+        }
+        for r in recs if r["id"] not in rated_ids
+    ]
+
+    if not pending:
+        return {"pending": False, "sessions": []}
+
+    return {"pending": True, "sessions": pending, "done_at": yesterday.isoformat()}
 
 
 # ── Wellness subjectif ────────────────────────────────────────────────────────
