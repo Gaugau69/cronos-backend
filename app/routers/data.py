@@ -365,7 +365,8 @@ def _compute_training_load(activities: list) -> dict:
         atl  = atl + alpha_atl * (load - atl)
         ctl  = ctl + alpha_ctl * (load - ctl)
 
-    tsb = round(ctl - atl, 1)
+    tsb  = round(ctl - atl, 1)
+    acwr = round(atl / ctl, 2) if ctl > 0 else 0.0
 
     return {
         "atl":             round(atl, 1),
@@ -374,8 +375,8 @@ def _compute_training_load(activities: list) -> dict:
         "weekly_km":       round(km_7, 1),
         "weekly_sessions": sess_7,
         "load_trend": (
-            "surcharge" if tsb < -20 else
-            "charge"    if tsb < -5  else
+            "surcharge" if (tsb < -20 or acwr > 1.5) else
+            "charge"    if (tsb < -5  or acwr > 1.25) else
             "équilibré" if tsb < 10  else
             "fraîcheur"
         ),
