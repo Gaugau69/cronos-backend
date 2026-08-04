@@ -660,6 +660,85 @@ def _apply_tsb_guard(sessions: list, tsb: float, load_info: dict | None = None) 
 
 
 # ─────────────────────────────────────────────────────────────
+# WEATHER GUARD
+# ─────────────────────────────────────────────────────────────
+
+# Sessions adaptées aux conditions difficiles (indoor / faible impact)
+_INDOOR_CATEGORIES = {"recuperation", "force", "repos"}
+_INDOOR_IDS = {4, 5, 37, 51, 61}  # vélo, natation, mobilité, aqua-jogging, proprioception
+
+def _apply_weather_guard(
+    sessions: list,
+    temp_c: float | None,
+    precip_mm: float | None,
+    wind_kmh: float | None,
+    weather_code: int | None,
+) -> list:
+    """Ajuste les recommandations selon la météo du jour."""
+    if not sessions:
+        return sessions
+
+    # Détecter les conditions difficiles
+    is_rain   = (precip_mm is not None and precip_mm >= 1.0) or (weather_code is not None and weather_code in range(51, 100))
+    is_storm  = weather_code is not None and weather_code >= 95
+    is_hot    = temp_c is not None and temp_c >= 30
+    is_cold   = temp_c is not None and temp_c <= 0
+    is_windy  = wind_kmh is not None and wind_kmh >= 50
+
+    if not any([is_rain, is_storm, is_hot, is_cold, is_windy]):
+        return sessions
+
+    result = []
+    for i, s in enumerate(sessions):
+        s = dict(s)
+        note_parts = []
+
+        if is_storm:
+            # Orage : indoor uniquement
+            if s.get("category") not in _INDOOR_CATEGORIES and s.get("id") not in _INDOOR_IDS:
+                continue
+            note_parts.append("⛈️ Orage prévu — séance en intérieur recommandée")
+
+        elif is_rain:
+            # Pluie : favorise indoor, réduit le score des séances longues outdoor
+            if s.get("distance_km", 0) > 12 or s.get("intensity", 0) > 0.75:
+                s["score"] = round(s.get("score", 50) * 0.7, 1)
+            note_parts.append("🌧️ Pluie aujourd'hui — adapte ta séance ou opte pour l'intérieur")
+
+        if is_hot:
+            if s.get("intensity", 0) > 0.65:
+                continue
+            if s.get("duration_min", 0) > 75:
+                s["score"] = round(s.get("score", 50) * 0.8, 1)
+            note_parts.append(f"🌡️ {round(temp_c)}°C — intensité modérée, hydrate-toi bien")
+
+        if is_cold:
+            if s.get("distance_km", 0) > 15:
+                s["score"] = round(s.get("score", 50) * 0.85, 1)
+            note_parts.append(f"🧊 {round(temp_c)}°C — préchauffe bien et couvre-toi")
+
+        if is_windy:
+            if s.get("distance_km", 0) > 10:
+                s["score"] = round(s.get("score", 50) * 0.8, 1)
+            note_parts.append(f"💨 Vent fort ({round(wind_kmh)} km/h) — évite les sorties longues")
+
+        if note_parts and not s.get("note"):
+            s["note"] = " · ".join(note_parts)
+
+        result.append(s)
+
+    if not result:
+        result = sessions[:2]
+
+    # Renuméroter
+    result.sort(key=lambda x: x.get("score", 0), reverse=True)
+    for i, s in enumerate(result):
+        s["rank"] = i + 1
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────
 # RECOMMEND
 # ─────────────────────────────────────────────────────────────
 
@@ -668,6 +747,10 @@ async def recommend_sessions(
     name: str,
     top_k: int = Query(5, ge=1, le=10),
     refresh: bool = Query(False, description="Forcer le recalcul même si le cache existe"),
+    temp_c: float | None = Query(None, description="Température actuelle (°C)"),
+    precip_mm: float | None = Query(None, description="Précipitations (mm)"),
+    wind_kmh: float | None = Query(None, description="Vitesse du vent (km/h)"),
+    weather_code: int | None = Query(None, description="Code météo WMO"),
     db: AsyncSession = Depends(get_db),
     caller_email: str = Depends(get_caller_email),
 ):
@@ -833,6 +916,9 @@ async def recommend_sessions(
 
     # ── Garde TSB/ACWR (AION) ────────────────────────────────────────────────
     recommendations = _apply_tsb_guard(recommendations, load_info["tsb"], load_info)
+
+    # ── Garde météo ───────────────────────────────────────────────────────────
+    recommendations = _apply_weather_guard(recommendations, temp_c, precip_mm, wind_kmh, weather_code)
 
     # ── Assemblage réponse ────────────────────────────────────────────────────
     recovery_out = {
