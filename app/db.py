@@ -329,7 +329,7 @@ class NotificationPrefs(Base):
 
     id            = Column(Integer, primary_key=True)
     user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
-    email_enabled = Column(Boolean, default=False)
+    email_enabled = Column(Boolean, default=True)
     send_hour     = Column(Integer, default=8)    # heure UTC d'envoi (0-23)
 
     user = relationship("User", back_populates="notification_prefs")
