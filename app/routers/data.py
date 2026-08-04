@@ -614,6 +614,40 @@ def _rank_sessions(
 
 
 # ─────────────────────────────────────────────────────────────
+# WELLNESS GUARD
+# ─────────────────────────────────────────────────────────────
+
+def _apply_wellness_guard(sessions: list, wellness_score: float | None) -> list:
+    """Ajuste les recommandations selon le score de forme subjectif du jour.
+
+    wellness_score : 0.0 = fatigué, 0.5 = normal, 1.0 = en forme
+    """
+    if wellness_score is None:
+        return sessions
+
+    _INTENSE = {"vo2max", "seuil", "allure_course", "sortie_longue"}
+
+    if wellness_score <= 0.1:   # fatigué
+        light = [s for s in sessions if s.get("category") not in _INTENSE]
+        if not light:
+            light = sessions[:1]
+        for s in light:
+            if not s.get("note"):
+                s["note"] = "😴 Tu te sens fatigué — séances intenses écartées, priorité à la récupération."
+        return light[:2]
+
+    if wellness_score >= 0.9:   # en forme → léger boost sur les séances de qualité
+        for s in sessions:
+            if s.get("category") in _INTENSE:
+                s["score"] = round(min(99, s.get("score", 80) * 1.05), 1)
+        sessions.sort(key=lambda x: x.get("score", 0), reverse=True)
+        for i, s in enumerate(sessions):
+            s["rank"] = i + 1
+
+    return sessions
+
+
+# ─────────────────────────────────────────────────────────────
 # INJURY GUARD
 # ─────────────────────────────────────────────────────────────
 
@@ -989,6 +1023,15 @@ async def recommend_sessions(
             recent_session_ids=recent_session_ids,
             terrain_profile=terrain_profile,
         )
+
+    # ── Garde wellness (état de forme subjectif du jour) ─────────────────────
+    today_metric = (await db.execute(
+        select(DailyMetric)
+        .where(DailyMetric.user_id == user.id)
+        .where(DailyMetric.date == date.today())
+    )).scalar_one_or_none()
+    wellness_score = today_metric.wellness_score if today_metric else None
+    recommendations = _apply_wellness_guard(recommendations, wellness_score)
 
     # ── Garde blessures ───────────────────────────────────────────────────────
     from app.db import InjuryLog
