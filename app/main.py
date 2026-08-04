@@ -20,6 +20,7 @@ from app.db import AsyncSessionLocal, init_db
 from app.routers import data, users, polar, withings, profile, oura, whoop, fitbit
 from app.routers import feedback as feedback_router
 from app.routers import notifications as notifications_router
+from app.routers import injury as injury_router
 from app.services.collect import collect_all_users_yesterday
 from app.logging_config import setup_logging
 setup_logging()
@@ -160,6 +161,7 @@ app.include_router(routes_router.router)
 app.include_router(pacing_router.router)
 app.include_router(feedback_router.router)
 app.include_router(notifications_router.router)
+app.include_router(injury_router.router)
 from app.routers import workouts as workouts_router
 app.include_router(workouts_router.router)
 

@@ -614,6 +614,82 @@ def _rank_sessions(
 
 
 # ─────────────────────────────────────────────────────────────
+# INJURY GUARD
+# ─────────────────────────────────────────────────────────────
+
+_LOWER_BODY_ZONES = {
+    "genou_gauche", "genou_droite",
+    "cheville_gauche", "cheville_droite",
+    "jambe_gauche", "jambe_droite",
+    "mollet_gauche", "mollet_droite",
+    "cuisse_gauche", "cuisse_droite",
+    "hanche_gauche", "hanche_droite",
+    "pied_gauche", "pied_droite",
+}
+
+def _apply_injury_guard(sessions: list, injuries: list) -> list:
+    """Adapte les recommandations selon les blessures actives déclarées."""
+    if not injuries:
+        return sessions
+
+    worst_severity = "gene"
+    has_lower_body = False
+    has_arret      = False
+
+    for inj in injuries:
+        sev    = inj.get("severity", "gene")
+        zone   = inj.get("body_zone", "autre")
+        status = inj.get("status", "active")
+
+        if zone in _LOWER_BODY_ZONES:
+            has_lower_body = True
+
+        if sev == "arret":
+            worst_severity = "arret"
+            has_arret = True
+        elif sev == "legere" and worst_severity != "arret":
+            worst_severity = "legere"
+
+        if status == "recovering" and worst_severity == "arret":
+            worst_severity = "legere"
+
+    if has_arret or worst_severity == "arret":
+        repos = [s for s in sessions if s.get("category") == "repos"]
+        if not repos:
+            repos = [{"id": 999, "name": "Repos complet", "category": "repos",
+                      "duration_min": None, "distance_km": None, "score": 100,
+                      "note": "🤕 Blessure déclarée — repos total recommandé."}]
+        repos[0]["note"] = "🤕 Blessure déclarée — repos total recommandé."
+        return repos[:1]
+
+    _INTENSE_CATEGORIES = {"vo2max", "seuil", "allure_course", "sortie_longue"}
+    if worst_severity == "legere":
+        light = [s for s in sessions if s.get("category") not in _INTENSE_CATEGORIES]
+        if not light:
+            light = sessions[:1]
+        for s in light:
+            if not s.get("note"):
+                s["note"] = "🤕 Blessure — séances intenses écartées, privilégie la récupération."
+        return light[:2]
+
+    # gene + has_lower_body → filtrer uniquement les séances running intense
+    if worst_severity == "gene" and has_lower_body:
+        filtered = [s for s in sessions if s.get("category") not in {"vo2max", "allure_course"}]
+        if not filtered:
+            filtered = sessions[:2]
+        for s in filtered:
+            if not s.get("note"):
+                s["note"] = "🤕 Légère douleur — évite les séances très intenses."
+        return filtered[:3]
+
+    # gene hors membre inférieur → note simple, pas de filtre
+    for s in sessions[:3]:
+        if not s.get("note"):
+            s["note"] = "🤕 Gêne signalée — écoute ton corps."
+    return sessions[:3]
+
+
+# ─────────────────────────────────────────────────────────────
 # TSB GUARD
 # ─────────────────────────────────────────────────────────────
 
@@ -913,6 +989,19 @@ async def recommend_sessions(
             recent_session_ids=recent_session_ids,
             terrain_profile=terrain_profile,
         )
+
+    # ── Garde blessures ───────────────────────────────────────────────────────
+    from app.db import InjuryLog
+    active_injuries_rows = (await db.execute(
+        select(InjuryLog)
+        .where(InjuryLog.user_id == user.id)
+        .where(InjuryLog.status.in_(["active", "recovering"]))
+    )).scalars().all()
+    active_injuries = [
+        {"body_zone": inj.body_zone, "severity": inj.severity, "status": inj.status}
+        for inj in active_injuries_rows
+    ]
+    recommendations = _apply_injury_guard(recommendations, active_injuries)
 
     # ── Garde TSB/ACWR (AION) ────────────────────────────────────────────────
     recommendations = _apply_tsb_guard(recommendations, load_info["tsb"], load_info)

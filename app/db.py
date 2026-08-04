@@ -76,6 +76,7 @@ class User(Base):
     recommendations_cache= relationship("RecommendationsCache",back_populates="user", cascade="all, delete-orphan")
     activity_tracks      = relationship("ActivityTrack",       back_populates="user", cascade="all, delete-orphan")
     notification_prefs   = relationship("NotificationPrefs",   back_populates="user", cascade="all, delete-orphan", uselist=False)
+    injury_logs          = relationship("InjuryLog",           back_populates="user", cascade="all, delete-orphan")
 
 
 class DailyMetric(Base):
@@ -332,3 +333,24 @@ class NotificationPrefs(Base):
     send_hour     = Column(Integer, default=8)    # heure UTC d'envoi (0-23)
 
     user = relationship("User", back_populates="notification_prefs")
+
+
+# ─────────────────────────────────────────────
+# G. Journal des blessures
+# ─────────────────────────────────────────────
+
+class InjuryLog(Base):
+    """Blessure déclarée par l'utilisateur — adapte les recommandations CRONOS."""
+    __tablename__ = "cronos_injury_logs"
+
+    id             = Column(Integer, primary_key=True)
+    user_id        = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    body_zone      = Column(String(50),  nullable=False)   # ex: "genou_gauche", "dos"
+    severity       = Column(String(20),  nullable=False)   # "gene" | "legere" | "arret"
+    estimated_days = Column(Integer,     nullable=True)    # durée estimée (None = à réévaluer)
+    status         = Column(String(20),  nullable=False, default="active")  # active | recovering | healed
+    notes          = Column(Text,        nullable=True)
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at     = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", back_populates="injury_logs")
