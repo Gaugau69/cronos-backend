@@ -45,6 +45,12 @@ async def init_db():
                     f"ALTER TABLE cronos_daily_metrics ADD COLUMN IF NOT EXISTS {col} {coltype}"
                 )
             )
+        # Activer les notifs pour les utilisateurs existants qui avaient opt-out par défaut
+        await conn.execute(
+            __import__("sqlalchemy", fromlist=["text"]).text(
+                "UPDATE cronos_notification_prefs SET email_enabled = TRUE WHERE email_enabled = FALSE"
+            )
+        )
 
 
 # ── Tables ─────────────────────────────────────────────────────────────────
