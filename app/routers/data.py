@@ -4,14 +4,17 @@ app/routers/data.py — Collecte manuelle, métriques et recommandations CRONOS.
 
 import asyncio
 import json
+import logging
 from datetime import date, timedelta
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import (
     Activity, AthleteProfile, DailyMetric, PlannedRace,
     RecommendationsCache, SessionFeedback, SessionHistory, User, get_db,
@@ -21,6 +24,29 @@ from app.schemas import ActivityOut, CollectRequest, DailyMetricOut
 from app.services.collect import collect_user_range
 from app.services.ml_recommender import ml_recommend
 from app.dependencies import get_caller_email, require_owner
+
+logger = logging.getLogger(__name__)
+
+
+async def _fetch_pf_load(email: str) -> dict | None:
+    """Récupère ATL/CTL/TSB depuis PF backend (source de vérité — 365 jours de données)."""
+    pf_url = getattr(settings, "pf_backend_url", "")
+    pf_key = getattr(settings, "pf_internal_key", "")
+    if not pf_url or not pf_key or not email:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                f"{pf_url}/api/internal/load",
+                params={"email": email},
+                headers={"x-internal-key": pf_key},
+            )
+            if r.status_code == 200:
+                return r.json()
+            logger.warning("PF internal load — HTTP %s pour %s", r.status_code, email)
+    except Exception as exc:
+        logger.warning("PF internal load — échec pour %s: %s", email, exc)
+    return None
 
 router = APIRouter(tags=["data"])
 
@@ -862,9 +888,6 @@ async def recommend_sessions(
     precip_mm: float | None = Query(None, description="Précipitations (mm)"),
     wind_kmh: float | None = Query(None, description="Vitesse du vent (km/h)"),
     weather_code: int | None = Query(None, description="Code météo WMO"),
-    aion_atl: float | None = Query(None, description="ATL calculé par AION (source unifiée)"),
-    aion_ctl: float | None = Query(None, description="CTL calculé par AION (source unifiée)"),
-    aion_tsb: float | None = Query(None, description="TSB calculé par AION (source unifiée)"),
     db: AsyncSession = Depends(get_db),
     caller_email: str = Depends(get_caller_email),
 ):
@@ -930,23 +953,24 @@ async def recommend_sessions(
                 "recommendations": json.loads(cached.recommendations_json),
             }
 
-    # ── Charge 7j glissants ──────────────────────────────────────────────────
+    # ── Charge — PF backend (source unifiée, 365j), fallback local (42j) ───────
     load_info = _compute_training_load(activities_42)
-
-    # Si AION fournit ses propres ATL/CTL/TSB (source unifiée), on les substitue
-    # pour le TSB guard — les deux outils utilisent alors les mêmes données.
-    if aion_atl is not None and aion_ctl is not None and aion_tsb is not None:
-        acwr_aion = round(aion_atl / aion_ctl, 2) if aion_ctl > 0 else load_info.get("acwr", 0.0)
+    pf_load = await _fetch_pf_load(caller_email)
+    if pf_load:
+        atl_pf  = pf_load["atl"]
+        ctl_pf  = pf_load["ctl"]
+        tsb_pf  = pf_load["tsb"]
+        acwr_pf = pf_load.get("acwr") or (round(atl_pf / ctl_pf, 2) if ctl_pf > 0 else 0.0)
         load_info = {
             **load_info,
-            "atl":  round(aion_atl, 1),
-            "ctl":  round(aion_ctl, 1),
-            "tsb":  round(aion_tsb, 1),
-            "acwr": acwr_aion,
+            "atl":  atl_pf,
+            "ctl":  ctl_pf,
+            "tsb":  tsb_pf,
+            "acwr": acwr_pf,
             "load_trend": (
-                "surcharge" if (aion_tsb < -20 or acwr_aion > 1.5) else
-                "charge"    if (aion_tsb < -5  or acwr_aion > 1.25) else
-                "équilibré" if aion_tsb < 10 else
+                "surcharge" if (tsb_pf < -20 or acwr_pf > 1.5) else
+                "charge"    if (tsb_pf < -5  or acwr_pf > 1.25) else
+                "équilibré" if tsb_pf < 10 else
                 "fraîcheur"
             ),
         }
@@ -1171,7 +1195,8 @@ async def get_load_summary(
     caller_email: str = Depends(get_caller_email),
 ):
     """Retourne ATL/CTL/TSB + recovery sans calculer les recommandations.
-    Utilisé par le dashboard Peakflow pour les utilisateurs Garmin-only (sans Strava)."""
+    Utilisé par le dashboard Peakflow pour les utilisateurs Garmin-only (sans Strava).
+    ATL/CTL/TSB proviennent de PF backend (365j de données) si disponible."""
     user = await require_owner(name, db, caller_email)
 
     metrics = (await db.execute(
@@ -1190,6 +1215,28 @@ async def get_load_summary(
     )).scalars().all()
 
     load_info = _compute_training_load(list(activities))
+
+    # Données PF (365j) en priorité
+    pf_load = await _fetch_pf_load(caller_email)
+    if pf_load:
+        atl_pf  = pf_load["atl"]
+        ctl_pf  = pf_load["ctl"]
+        tsb_pf  = pf_load["tsb"]
+        acwr_pf = pf_load.get("acwr") or (round(atl_pf / ctl_pf, 2) if ctl_pf > 0 else 0.0)
+        load_info = {
+            **load_info,
+            "atl":  atl_pf,
+            "ctl":  ctl_pf,
+            "tsb":  tsb_pf,
+            "acwr": acwr_pf,
+            "load_trend": (
+                "surcharge" if (tsb_pf < -20 or acwr_pf > 1.5) else
+                "charge"    if (tsb_pf < -5  or acwr_pf > 1.25) else
+                "équilibré" if tsb_pf < 10 else
+                "fraîcheur"
+            ),
+        }
+
     recovery, signals = _compute_recovery(list(metrics), load_info)
 
     return {

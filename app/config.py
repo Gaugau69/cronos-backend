@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # Secret pour les endpoints d'administration (vide = endpoints désactivés)
     admin_secret: str = ""
 
+    # PF backend (source de vérité ATL/CTL/TSB)
+    pf_backend_url: str = "https://peakflow-technologies-dev.up.railway.app"
+    pf_internal_key: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 
