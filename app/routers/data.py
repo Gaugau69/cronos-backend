@@ -862,6 +862,9 @@ async def recommend_sessions(
     precip_mm: float | None = Query(None, description="Précipitations (mm)"),
     wind_kmh: float | None = Query(None, description="Vitesse du vent (km/h)"),
     weather_code: int | None = Query(None, description="Code météo WMO"),
+    aion_atl: float | None = Query(None, description="ATL calculé par AION (source unifiée)"),
+    aion_ctl: float | None = Query(None, description="CTL calculé par AION (source unifiée)"),
+    aion_tsb: float | None = Query(None, description="TSB calculé par AION (source unifiée)"),
     db: AsyncSession = Depends(get_db),
     caller_email: str = Depends(get_caller_email),
 ):
@@ -929,6 +932,24 @@ async def recommend_sessions(
 
     # ── Charge 7j glissants ──────────────────────────────────────────────────
     load_info = _compute_training_load(activities_42)
+
+    # Si AION fournit ses propres ATL/CTL/TSB (source unifiée), on les substitue
+    # pour le TSB guard — les deux outils utilisent alors les mêmes données.
+    if aion_atl is not None and aion_ctl is not None and aion_tsb is not None:
+        acwr_aion = round(aion_atl / aion_ctl, 2) if aion_ctl > 0 else load_info.get("acwr", 0.0)
+        load_info = {
+            **load_info,
+            "atl":  round(aion_atl, 1),
+            "ctl":  round(aion_ctl, 1),
+            "tsb":  round(aion_tsb, 1),
+            "acwr": acwr_aion,
+            "load_trend": (
+                "surcharge" if (aion_tsb < -20 or acwr_aion > 1.5) else
+                "charge"    if (aion_tsb < -5  or acwr_aion > 1.25) else
+                "équilibré" if aion_tsb < 10 else
+                "fraîcheur"
+            ),
+        }
 
     # ── Profil terrain (distance typique + dénivelé habituel) ────────────────
     terrain_profile = _compute_terrain_profile(list(activities_42))
